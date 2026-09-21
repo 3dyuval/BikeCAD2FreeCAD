@@ -10,13 +10,17 @@ Gravel.bcad  -->  [bcad2freecad.py]  -->  Gravel_freecad.py  -->  [FreeCAD]  -->
 
 ## What it produces
 
-A FreeCAD macro that creates 13 tubes:
+A FreeCAD macro that creates the frame as 13 tubes:
 
 - **Main triangle**: bottom bracket shell, head tube (tapered), seat tube, top tube, down tube
 - **Rear triangle**: chainstays (x2), seatstays (x2), seatstay bridge
 - **Fork**: fork blades (x2), steerer tube
 
-The scope is **frame and fork tubes only** — no wheels, brakes, dropouts, saddle, or other catalog components.
+Optionally (`--dropout` / `--all`) it also emits a **generic simple-slot dropout**
+plate on each side. This is a placeholder — real frames use bought-in dropouts,
+so it is excluded by default and is not the frame's actual library part.
+
+The scope is otherwise **frame and fork tubes only** — no wheels, brakes, saddle, or other catalog components.
 
 ## Requirements
 
@@ -29,27 +33,39 @@ The scope is **frame and fork tubes only** — no wheels, brakes, dropouts, sadd
 ```bash
 b() { python -m bcad2freecad MyBike.bcad "$@"; }   # shorthand for the examples
 
-b                       # whole frame → MyBike_freecad.py (default = --all)
-b -o my_frame.py        # choose the output filename
-b --dump-params         # inspect extracted geometry, write nothing
-b --hollow              # hollow tubes (more realistic, slower to render)
-b --stays               # one feature: just the rear triangle
-b --frame --fork        # several features combined
-b --stays --hollow -o rear.py   # features + options together
+# --- what to export (feature flags select exactly the named parts) ---
+b                     # default: frame + stays + fork  (no dropout)
+b --stays             # just the rear triangle
+b --frame --fork      # several parts combined
+b --dropout           # just the dropout (generic simple-slot plate)
+b --stays --dropout   # any combination you like
+b --all               # everything, dropout included
+
+# --- how to render / where to write (options, combine with any of the above) ---
+b -o rear.py                    # choose the output filename
+b --hollow                      # hollow tubes (realistic, slower to render)
+b --axle-dia 12                 # dropout slot for a 12mm thru-axle (default 10)
+b --dump-params                 # inspect extracted geometry, write nothing
+b --stays --hollow -o rear.py   # parts + options together
 ```
 
-### Exporting specific parts
+Two orthogonal axes: **which parts** (feature flags) × **how to render**
+(options). Any option combines with any feature selection.
 
-By default the whole frame is exported. Pass feature flags (freely combined,
-as shown above) to export only certain parts:
+### Feature resolution
 
-| Flag | Parts |
-|------|-------|
-| `--frame` | BB shell, head/seat/top/down tubes |
-| `--stays` | chainstays (×2), seatstays (×2), seatstay bridge |
-| `--fork` | fork blades (×2), steerer |
-| `--dropout` | *recognized but not yet implemented* — the dropout is a plate (a static library part in most files), not a tube, so nothing is exported yet |
-| `--all` | everything (default when no feature flag is given) |
+Feature flags are an **additive filter** — the named set *is* the export set.
+With no flag, the default is the parts a builder fabricates (frame, stays,
+fork); the dropout is **excluded by default** because dropouts are bought-in
+ready-made. `--all` is the only way to also emit the dropout.
+
+| Flag | Parts | In default? |
+|------|-------|:-----------:|
+| `--frame` | BB shell, head/seat/top/down tubes | ✅ |
+| `--stays` | chainstays (×2), seatstays (×2), seatstay bridge | ✅ |
+| `--fork` | fork blades (×2), steerer | ✅ |
+| `--dropout` | generic simple-slot dropout plate (×2) | ❌ (bought-in) |
+| `--all` | everything above, dropout included | — |
 
 Then in FreeCAD: **Macro > Execute Macro** and select the generated `.py` file.
 
