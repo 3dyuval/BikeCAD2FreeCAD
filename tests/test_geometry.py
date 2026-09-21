@@ -232,6 +232,39 @@ class TestTubes:
         names = [t.name for t in geom.tubes]
         assert len(names) == len(set(names))
 
+    def test_every_tube_has_known_feature(self, geom):
+        for t in geom.tubes:
+            assert t.feature in ("frame", "stays", "fork"), \
+                f"{t.name} has unexpected feature {t.feature!r}"
+
+    def test_feature_counts(self, geom):
+        from collections import Counter
+        counts = Counter(t.feature for t in geom.tubes)
+        # 5 frame (BB, HT, ST, TT, DT), 5 stays (2 CS, 2 SS, bridge),
+        # 3 fork (2 blades, steerer)
+        assert counts["frame"] == 5
+        assert counts["stays"] == 5
+        assert counts["fork"] == 3
+
+
+class TestFilterTubes:
+    def test_filter_single_feature(self, geom):
+        from bcad2freecad import filter_tubes
+        stays = filter_tubes(geom.tubes, {"stays"})
+        assert len(stays) == 5
+        assert all(t.feature == "stays" for t in stays)
+
+    def test_filter_multiple_features(self, geom):
+        from bcad2freecad import filter_tubes
+        subset = filter_tubes(geom.tubes, {"frame", "fork"})
+        assert len(subset) == 8
+        assert all(t.feature in ("frame", "fork") for t in subset)
+
+    def test_filter_dropout_is_empty(self, geom):
+        from bcad2freecad import filter_tubes
+        # No tube carries the "dropout" feature — it is a plate, not a tube.
+        assert filter_tubes(geom.tubes, {"dropout"}) == []
+
 
 class TestFreeCADScriptGenerator:
     def test_generates_valid_python(self, geom):

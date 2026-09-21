@@ -8,7 +8,14 @@ Public API (also the names the test suite imports):
 """
 
 from .parser import BcadParser
-from .geometry import Vec3, TubeSpec, FrameGeometry
+from .geometry import (
+    Vec3,
+    TubeSpec,
+    FrameGeometry,
+    filter_tubes,
+    TUBE_FEATURES,
+    ALL_FEATURES,
+)
 from .generator import FreeCADScriptGenerator
 
 __all__ = [
@@ -17,4 +24,7 @@ __all__ = [
     "TubeSpec",
     "FrameGeometry",
     "FreeCADScriptGenerator",
+    "filter_tubes",
+    "TUBE_FEATURES",
+    "ALL_FEATURES",
 ]

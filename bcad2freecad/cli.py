@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .parser import BcadParser
-from .geometry import FrameGeometry
+from .geometry import FrameGeometry, filter_tubes, TUBE_FEATURES
 from .generator import FreeCADScriptGenerator
 
 
@@ -26,6 +26,24 @@ def main():
         "--hollow", action="store_true",
         help="Generate hollow tubes (slower render but more realistic)",
     )
+
+    # Feature flags: pass any combination to export only those parts.
+    # With none given, everything is exported (--all is the implicit default).
+    feat = ap.add_argument_group(
+        "features",
+        "Select which parts to export (default: all). Combine freely, "
+        "e.g. --frame --stays.",
+    )
+    feat.add_argument("--frame", action="store_true",
+                      help="Main triangle: BB shell, head/seat/top/down tubes")
+    feat.add_argument("--stays", action="store_true",
+                      help="Rear triangle: chainstays, seatstays, bridge")
+    feat.add_argument("--fork", action="store_true",
+                      help="Fork blades and steerer")
+    feat.add_argument("--dropout", action="store_true",
+                      help="Rear dropout (plate export not yet implemented)")
+    feat.add_argument("--all", action="store_true",
+                      help="Export everything (same as passing no feature flag)")
     args = ap.parse_args()
 
     # Parse
@@ -48,6 +66,31 @@ def main():
     if args.dump_params:
         print(geom.dump_params())
         sys.exit(0)
+
+    # Resolve requested features. No flag (and no --all) means export all.
+    requested = {
+        f for f in ("frame", "stays", "fork", "dropout")
+        if getattr(args, f)
+    }
+    if args.all or not requested:
+        requested = set(("frame", "stays", "fork", "dropout"))
+
+    # --dropout has no tube geometry: the dropout is a plate (a static library
+    # part in files like MyBike.bcad), so it cannot be emitted yet. Warn.
+    if "dropout" in requested:
+        print(
+            "  Warning: --dropout requested but dropout export is not "
+            "implemented (it is a plate / static library part, not a tube). "
+            "No dropout geometry will be written.",
+            file=sys.stderr,
+        )
+
+    # Keep only the tube features that actually produce geometry.
+    tubes = filter_tubes(tubes, requested & set(TUBE_FEATURES))
+    if not tubes:
+        print("Error: no exportable geometry for the selected features.",
+              file=sys.stderr)
+        sys.exit(1)
 
     # Generate FreeCAD script
     gen = FreeCADScriptGenerator(tubes, hollow=args.hollow)

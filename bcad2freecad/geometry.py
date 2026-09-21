@@ -6,9 +6,21 @@ TubeSpec objects.
 """
 
 import math
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from .parser import BcadParser
+
+# Feature groups that map to actual generated tubes. "dropout" is a recognized
+# feature but has no tube geometry: the dropout is a plate (and in static-mode
+# files a library part not present in the .bcad), so it currently emits nothing.
+TUBE_FEATURES = ("frame", "stays", "fork")
+ALL_FEATURES = TUBE_FEATURES + ("dropout",)
+
+
+def filter_tubes(tubes: list["TubeSpec"], features: set[str]) -> list["TubeSpec"]:
+    """Return only tubes whose feature is in `features`."""
+    return [t for t in tubes if t.feature in features]
 
 
 @dataclass
@@ -53,6 +65,7 @@ class TubeSpec:
     radius2: float          # radius at end (same as radius1 for cylinder)
     wall: float = 0.0       # wall thickness (0 = solid)
     color: tuple[float, float, float] = (0.6, 0.6, 0.65)  # steel gray
+    feature: str = "frame"  # feature group: frame | stays | fork
 
     @property
     def direction(self) -> Vec3:
@@ -91,18 +104,29 @@ class FrameGeometry:
         self.front_axle = Vec3()
 
     def compute(self) -> list[TubeSpec]:
-        """Compute all tube specs. Returns list of TubeSpec."""
+        """Compute all tube specs, each tagged with its feature group."""
         self._compute_reference_points()
-        self._make_bb_shell()
-        self._make_head_tube()
-        self._make_seat_tube()
-        self._make_top_tube()
-        self._make_down_tube()
-        self._make_chainstays()
-        self._make_seatstays()
-        self._make_seatstay_bridge()
-        self._make_fork()
+        with self._feature("frame"):
+            self._make_bb_shell()
+            self._make_head_tube()
+            self._make_seat_tube()
+            self._make_top_tube()
+            self._make_down_tube()
+        with self._feature("stays"):
+            self._make_chainstays()
+            self._make_seatstays()
+            self._make_seatstay_bridge()
+        with self._feature("fork"):
+            self._make_fork()
         return self.tubes
+
+    @contextmanager
+    def _feature(self, name: str):
+        """Stamp `feature=name` on every tube appended within this block."""
+        start = len(self.tubes)
+        yield
+        for t in self.tubes[start:]:
+            t.feature = name
 
     def _compute_reference_points(self):
         """Derive all reference points from .bcad parameters."""
