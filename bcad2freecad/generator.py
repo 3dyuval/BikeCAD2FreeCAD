@@ -71,15 +71,17 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
 
 
 def make_dropout(name, center, width, height, thickness, slot_width,
-                 fillet=0.0, tabs=(), color=(0.4, 0.4, 0.43)):
+                 slot_angle=180.0, slot_length=50.0, fillet=0.0, tabs=(),
+                 color=(0.4, 0.4, 0.43)):
     """Create a parameterizedSocket dropout: slotted plate + stay-socket tabs.
 
     The plate lies in the X-Y plane and is `thickness` thick along Z. A U-slot
-    of `slot_width` is cut open to the lower (-Y) edge for the axle. Outer
-    corners are rounded by `fillet`. Each entry in `tabs` is
-    (start_xyz, dir_xyz, length, size): a socket stub extending from `start`
-    along `dir` for `length`, radius |size|/2. A negative `size` means the stay
-    tube inserts into the socket (still drawn as the stub the tube fits over).
+    of width `slot_width` and length `slot_length` (D, from the axle center to
+    its rounded end) is cut opening in the direction `slot_angle` (degrees from
+    +X, CCW: 0=forward, 90=up, 180/-180=rear, -90=down). Outer corners are
+    rounded by `fillet`. Each entry in `tabs` is (start_xyz, dir_xyz, length,
+    size): a socket stub from `start` along `dir`. Negative `size` means the
+    stay tube inserts into the socket.
     """
     cx, cy, cz = center
     # Plate: box centered at (cx, cy) in X-Y, centered on cz in Z.
@@ -100,13 +102,20 @@ def make_dropout(name, center, width, height, thickness, slot_width,
         except Exception:
             pass  # keep sharp corners if the fillet can't be applied
 
-    # Slot: a box of slot_width, cut from the axle center down through the
-    # lower edge. Extends slightly beyond the plate so the cut is clean.
-    slot = Part.makeBox(
-        slot_width, height / 2 + 1.0, thickness + 2.0,
-        FreeCAD.Vector(cx - slot_width / 2, cy - height / 2 - 1.0,
-                       cz - thickness / 2 - 1.0),
-    )
+    # U-slot: a rectangle (slot_width x slot_length) with a rounded end — a box
+    # fused with a cylinder cap at the far end (a "stadium"/capsule cross
+    # section). Built along +X from the axle, then rotated by slot_angle. The
+    # extra 1mm at the mouth keeps the cut clean where it opens.
+    zt = thickness + 2.0
+    z0 = cz - thickness / 2 - 1.0
+    r = slot_width / 2
+    slot = Part.makeBox(slot_length + 1.0, slot_width, zt,
+                        FreeCAD.Vector(-1.0, -r, z0))
+    cap = Part.makeCylinder(r, zt, FreeCAD.Vector(slot_length, 0, z0),
+                            FreeCAD.Vector(0, 0, 1))
+    slot = slot.fuse(cap)
+    slot.rotate(FreeCAD.Vector(0, 0, cz), FreeCAD.Vector(0, 0, 1), slot_angle)
+    slot.translate(FreeCAD.Vector(cx, cy, 0))
     shape = plate.cut(slot)
 
     # Stay-socket tabs: a cylinder from each socket point along its stay axis.
@@ -144,8 +153,9 @@ def make_dropout(name, center, width, height, thickness, slot_width,
         cx = d.axle.x + d.Z
         cy = d.axle.y
         cz = d.axle.z
-        # Footprint: axle hole plus A of material all round → span = 2*(r + A).
-        span = 2 * (d.slotWidth / 2 + d.A)
+        # Footprint: axle hole plus A of material past the edge (A applied
+        # once, not on both sides) → span = axle_dia + A.
+        span = d.slotWidth + d.A
 
         tabs = []
         for sock in (d.chainstaySocket, d.seatstaySocket):
@@ -159,8 +169,9 @@ def make_dropout(name, center, width, height, thickness, slot_width,
             f'make_dropout("{d.name}",\n'
             f"    center=({cx:.2f}, {cy:.2f}, {cz:.2f}),\n"
             f"    width={span:.2f}, height={span:.2f}, thickness={d.T:.2f},\n"
-            f"    slot_width={d.slotWidth:.2f}, fillet={d.fillet:.2f},\n"
-            f"    tabs={tabs!r},\n"
+            f"    slot_width={d.slotWidth:.2f}, slot_angle={d.slotAngle:.2f},\n"
+            f"    slot_length={d.slotLength:.2f}, fillet={d.fillet:.2f}, "
+            f"tabs={tabs!r},\n"
             f"    color=({d.color[0]:.2f}, {d.color[1]:.2f}, {d.color[2]:.2f}))\n"
         )
 

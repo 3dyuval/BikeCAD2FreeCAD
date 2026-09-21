@@ -303,6 +303,27 @@ class TestDropouts:
         # Fillet is a fixed cosmetic constant, not a parameter or CLI option.
         assert all(d.fillet == DROPOUT_FILLET for d in geom.dropouts)
 
+    def test_slot_angle_defaults_rearward(self, geom):
+        # ξ (Dropout joint 9) defaults to 180° = rearward when absent.
+        assert all(abs(d.slotAngle - 180.0) < 1e-6 for d in geom.dropouts)
+
+    def test_slot_angle_read_from_joint_9(self, tmp_path):
+        # -90° should map to "down"; confirm the value is read, not hardcoded.
+        import textwrap
+        from bcad2freecad import BcadParser, FrameGeometry
+        content = textwrap.dedent("""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+            <properties>
+            <entry key="Dropout joint 9">-90.0</entry>
+            </properties>
+        """)
+        f = tmp_path / "slot.bcad"
+        f.write_text(content)
+        g = FrameGeometry(BcadParser(str(f)))
+        g.compute()
+        assert all(abs(d.slotAngle + 90.0) < 1e-6 for d in g.dropouts)
+
 
 class TestFreeCADScriptGenerator:
     def test_generates_valid_python(self, geom):

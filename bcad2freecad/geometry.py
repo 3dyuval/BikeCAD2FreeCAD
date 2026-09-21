@@ -136,6 +136,8 @@ class ParameterizedSocket:
     T: float = 10.0
     Z: float = 0.0
     t: float = -1.0
+    slotAngle: float = 180.0    # ξ: slot opening dir, deg from +X CCW (rear)
+    slotLength: float = 50.0    # D: slot length from axle center to round end
     slotWidth: float = 10.0     # axle slot width (~ axle diameter)
     fillet: float = DROPOUT_FILLET
     tabLength: float = DROPOUT_TAB_LENGTH
@@ -624,6 +626,12 @@ class FrameGeometry:
         T = p.get_float("Dropout joint 8", 10.0)
         Z = p.get_float("Dropout ADJ", 0.0)
         t = p.get_float("Dropout joint 13", -1.0)
+        # Slot opening angle ξ (Dropout joint 9), degrees from +X (forward),
+        # CCW: 0=forward, 90=up, 180/-180=rear, -90=down.
+        slotAngle = p.get_float("Dropout joint 9", 180.0)
+        # Slot length D (Dropout joint 10): how far the slot runs from the
+        # axle center out to its rounded end.
+        slotLength = p.get_float("Dropout joint 10", 50.0)
         dropoutSpacing = p.get_float("Dropout spacing", 135.0)
 
         # Stay axes (in the frame plane) the socket tabs extend along.
@@ -643,6 +651,8 @@ class FrameGeometry:
                 axle=axle,
                 type="socket",
                 A=A, T=T, Z=Z, t=t,
+                slotAngle=slotAngle,
+                slotLength=slotLength,
                 slotWidth=self.axle_dia,
                 chainstaySocket=StaySocket(
                     x=p.get_float("Dropout joint 0", 0.0),
