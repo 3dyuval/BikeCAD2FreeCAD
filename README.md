@@ -27,34 +27,21 @@ The scope is **frame and fork tubes only** — no wheels, brakes, dropouts, sadd
 ## Usage
 
 ```bash
-# Generate a FreeCAD macro
-python -m bcad2freecad MyBike.bcad
+b() { python -m bcad2freecad MyBike.bcad "$@"; }   # shorthand for the examples
 
-# Specify output filename
-python -m bcad2freecad MyBike.bcad -o my_frame.py
-
-# Inspect extracted geometry without generating a script
-python -m bcad2freecad MyBike.bcad --dump-params
-
-# Generate hollow tubes (more realistic but slower to render)
-python -m bcad2freecad MyBike.bcad --hollow
+b                       # whole frame → MyBike_freecad.py (default = --all)
+b -o my_frame.py        # choose the output filename
+b --dump-params         # inspect extracted geometry, write nothing
+b --hollow              # hollow tubes (more realistic, slower to render)
+b --stays               # one feature: just the rear triangle
+b --frame --fork        # several features combined
+b --stays --hollow -o rear.py   # features + options together
 ```
 
 ### Exporting specific parts
 
-By default the whole frame is exported. Pass feature flags to export only
-certain parts — combine them freely:
-
-```bash
-# Only the rear triangle (chainstays, seatstays, bridge)
-python -m bcad2freecad MyBike.bcad --stays
-
-# Main triangle plus fork
-python -m bcad2freecad MyBike.bcad --frame --fork
-
-# Everything (explicit; same as passing no flag)
-python -m bcad2freecad MyBike.bcad --all
-```
+By default the whole frame is exported. Pass feature flags (freely combined,
+as shown above) to export only certain parts:
 
 | Flag | Parts |
 |------|-------|
