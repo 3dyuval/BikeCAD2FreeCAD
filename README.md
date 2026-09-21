@@ -40,6 +40,30 @@ python -m bcad2freecad MyBike.bcad --dump-params
 python -m bcad2freecad MyBike.bcad --hollow
 ```
 
+### Exporting specific parts
+
+By default the whole frame is exported. Pass feature flags to export only
+certain parts — combine them freely:
+
+```bash
+# Only the rear triangle (chainstays, seatstays, bridge)
+python -m bcad2freecad MyBike.bcad --stays
+
+# Main triangle plus fork
+python -m bcad2freecad MyBike.bcad --frame --fork
+
+# Everything (explicit; same as passing no flag)
+python -m bcad2freecad MyBike.bcad --all
+```
+
+| Flag | Parts |
+|------|-------|
+| `--frame` | BB shell, head/seat/top/down tubes |
+| `--stays` | chainstays (×2), seatstays (×2), seatstay bridge |
+| `--fork` | fork blades (×2), steerer |
+| `--dropout` | *recognized but not yet implemented* — the dropout is a plate (a static library part in most files), not a tube, so nothing is exported yet |
+| `--all` | everything (default when no feature flag is given) |
+
 Then in FreeCAD: **Macro > Execute Macro** and select the generated `.py` file.
 
 ## Example output from `--dump-params`
