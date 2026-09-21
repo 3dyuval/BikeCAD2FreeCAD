@@ -71,11 +71,13 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
 
 
 def make_dropout(name, center, width, height, thickness, slot_width,
-                 color=(0.4, 0.4, 0.43)):
+                 fillet=0.0, color=(0.4, 0.4, 0.43)):
     """Create a simple slotted dropout plate centered at `center`.
 
     The plate lies in the X-Y plane and is `thickness` thick along Z. A U-slot
-    of `slot_width` is cut open to the lower (-Y) edge for the axle.
+    of `slot_width` is cut open to the lower (-Y) edge for the axle. Outer
+    corners are rounded by `fillet` (BikeCAD rounds these but has no parameter
+    for it, so it is a fixed cosmetic value).
     """
     cx, cy, cz = center
     # Plate: box centered at (cx, cy) in X-Y, centered on cz in Z.
@@ -83,6 +85,19 @@ def make_dropout(name, center, width, height, thickness, slot_width,
         width, height, thickness,
         FreeCAD.Vector(cx - width / 2, cy - height / 2, cz - thickness / 2),
     )
+
+    # Round the plate's vertical edges (those running along Z) before cutting
+    # the slot, so only the outer corners get rounded. Guarded: a fillet
+    # failure must not abort the whole macro.
+    if fillet > 0:
+        z_edges = [e for e in plate.Edges
+                   if abs(e.Vertexes[0].Z - e.Vertexes[1].Z) > 1e-6]
+        try:
+            plate = plate.makeFillet(min(fillet, width / 2 - 0.1,
+                                         height / 2 - 0.1), z_edges)
+        except Exception:
+            pass  # keep sharp corners if the fillet can't be applied
+
     # Slot: a box of slot_width, cut from the axle center down through the
     # lower edge. Extends slightly beyond the plate so the cut is clean.
     slot = Part.makeBox(
@@ -119,7 +134,7 @@ def make_dropout(name, center, width, height, thickness, slot_width,
             f"    center=({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f}),\n"
             f"    width={pl.width:.2f}, height={pl.height:.2f}, "
             f"thickness={pl.thickness:.2f},\n"
-            f"    slot_width={pl.slot_width:.2f},\n"
+            f"    slot_width={pl.slot_width:.2f}, fillet={pl.fillet:.2f},\n"
             f"    color=({pl.color[0]:.2f}, {pl.color[1]:.2f}, {pl.color[2]:.2f}))\n"
         )
 

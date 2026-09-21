@@ -11,11 +11,16 @@ from dataclasses import dataclass
 
 from .parser import BcadParser
 
-# Feature groups that map to actual generated tubes. "dropout" is a recognized
-# feature but has no tube geometry: the dropout is a plate (and in static-mode
-# files a library part not present in the .bcad), so it currently emits nothing.
+# Feature groups that map to actual generated *tubes*. The dropout is a
+# separate feature made of plates (PlateSpec), not tubes — see FrameGeometry.
 TUBE_FEATURES = ("frame", "stays", "fork")
 ALL_FEATURES = TUBE_FEATURES + ("dropout",)
+
+# Dropout plate corner fillet radius (mm). BikeCAD rounds the dropout plate
+# corners but exposes NO parameter for it — the .bcad has no fillet/radius key
+# (confirmed absent), so this is a fixed cosmetic constant, not a CLI option.
+# Value chosen to match BikeCAD's rendered corner rounding (~5mm).
+DROPOUT_FILLET = 5.0
 
 
 def filter_tubes(tubes: list["TubeSpec"], features: set[str]) -> list["TubeSpec"]:
@@ -94,6 +99,7 @@ class PlateSpec:
     height: float           # Y extent of the plate
     thickness: float        # Z extent (plate thickness)
     slot_width: float       # width of the axle slot (~ axle diameter)
+    fillet: float = DROPOUT_FILLET  # outer corner rounding (fixed constant)
     feature: str = "dropout"
     color: tuple[float, float, float] = (0.4, 0.4, 0.43)  # dark steel
 
