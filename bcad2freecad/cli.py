@@ -76,8 +76,10 @@ def main():
         requested = set(("frame", "stays", "fork", "dropout"))
 
     # --dropout has no tube geometry: the dropout is a plate (a static library
-    # part in files like MyBike.bcad), so it cannot be emitted yet. Warn.
-    if "dropout" in requested:
+    # part in files like MyBike.bcad), so it cannot be emitted yet. Only warn
+    # when the user asked for it explicitly — not on the default/--all path,
+    # where "dropout" is present just because everything is.
+    if args.dropout and not args.all:
         print(
             "  Warning: --dropout requested but dropout export is not "
             "implemented (it is a plate / static library part, not a tube). "
