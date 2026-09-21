@@ -26,13 +26,20 @@ def main():
         "--hollow", action="store_true",
         help="Generate hollow tubes (slower render but more realistic)",
     )
+    ap.add_argument(
+        "--axle-dia", type=float, default=10.0, metavar="MM",
+        help="Rear axle diameter, sets the dropout slot width (default: 10.0)",
+    )
 
-    # Feature flags: pass any combination to export only those parts.
-    # With none given, everything is exported (--all is the implicit default).
+    # Feature flags select exactly which parts to export (additive filter):
+    # the named set IS the export set. With no flag, the default is the parts
+    # a builder fabricates — frame + stays + fork — which EXCLUDES the dropout
+    # (dropouts are bought-in ready-made). --all is the only way to also get
+    # the dropout. See README "Feature resolution".
     feat = ap.add_argument_group(
         "features",
-        "Select which parts to export (default: all). Combine freely, "
-        "e.g. --frame --stays.",
+        "Export exactly the named parts. No flag = frame+stays+fork (no "
+        "dropout). Combine freely, e.g. --frame --fork.",
     )
     feat.add_argument("--frame", action="store_true",
                       help="Main triangle: BB shell, head/seat/top/down tubes")
@@ -41,9 +48,9 @@ def main():
     feat.add_argument("--fork", action="store_true",
                       help="Fork blades and steerer")
     feat.add_argument("--dropout", action="store_true",
-                      help="Rear dropout (plate export not yet implemented)")
+                      help="Rear dropout only (generic simple-slot plate)")
     feat.add_argument("--all", action="store_true",
-                      help="Export everything (same as passing no feature flag)")
+                      help="Everything, including the dropout")
     args = ap.parse_args()
 
     # Parse
@@ -56,7 +63,7 @@ def main():
     print(f"Parsed {len(parser.data)} parameters from {bcad_path.name}")
 
     # Compute geometry
-    geom = FrameGeometry(parser)
+    geom = FrameGeometry(parser, axle_dia=args.axle_dia)
     tubes = geom.compute()
 
     # Print warnings
@@ -67,35 +74,32 @@ def main():
         print(geom.dump_params())
         sys.exit(0)
 
-    # Resolve requested features. No flag (and no --all) means export all.
-    requested = {
+    # Resolve the export set:  R(export_set) = F ?? D
+    #   F (flags)   = exactly the named features (additive filter)
+    #   D (default) = frame + stays + fork  (a builder's fabricated parts;
+    #                 the bought-in dropout is excluded by default)
+    #   --all       = the only way to get everything, dropout included
+    flagged = {
         f for f in ("frame", "stays", "fork", "dropout")
         if getattr(args, f)
     }
-    if args.all or not requested:
-        requested = set(("frame", "stays", "fork", "dropout"))
+    if args.all:
+        requested = {"frame", "stays", "fork", "dropout"}
+    elif flagged:
+        requested = flagged
+    else:
+        requested = {"frame", "stays", "fork"}
 
-    # --dropout has no tube geometry: the dropout is a plate (a static library
-    # part in files like MyBike.bcad), so it cannot be emitted yet. Only warn
-    # when the user asked for it explicitly — not on the default/--all path,
-    # where "dropout" is present just because everything is.
-    if args.dropout and not args.all:
-        print(
-            "  Warning: --dropout requested but dropout export is not "
-            "implemented (it is a plate / static library part, not a tube). "
-            "No dropout geometry will be written.",
-            file=sys.stderr,
-        )
-
-    # Keep only the tube features that actually produce geometry.
     tubes = filter_tubes(tubes, requested & set(TUBE_FEATURES))
-    if not tubes:
+    plates = geom.plates if "dropout" in requested else []
+
+    if not tubes and not plates:
         print("Error: no exportable geometry for the selected features.",
               file=sys.stderr)
         sys.exit(1)
 
     # Generate FreeCAD script
-    gen = FreeCADScriptGenerator(tubes, hollow=args.hollow)
+    gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, plates=plates)
     script = gen.generate()
 
     # Determine output path
@@ -105,7 +109,8 @@ def main():
         out_path = bcad_path.with_name(bcad_path.stem + "_freecad.py")
 
     out_path.write_text(script)
-    print(f"Wrote {len(tubes)} tubes to {out_path}")
+    n = len(tubes) + len(plates)
+    print(f"Wrote {n} parts to {out_path}")
     print(f"Open in FreeCAD: Macro > Execute Macro > {out_path.name}")
 
 

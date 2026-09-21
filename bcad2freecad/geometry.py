@@ -80,6 +80,24 @@ class TubeSpec:
         return abs(self.radius1 - self.radius2) < 0.01
 
 
+@dataclass
+class PlateSpec:
+    """A simple slotted dropout plate.
+
+    A flat rectangular plate lying in the X-Y plane (frame plane), extruded
+    along Z by `thickness`, centered at `center`. A U-slot of width
+    `slot_width` is cut open to the lower (-Y) edge so the axle can slide in.
+    """
+    name: str
+    center: Vec3            # plate center (at the rear axle)
+    width: float            # X extent of the plate
+    height: float           # Y extent of the plate
+    thickness: float        # Z extent (plate thickness)
+    slot_width: float       # width of the axle slot (~ axle diameter)
+    feature: str = "dropout"
+    color: tuple[float, float, float] = (0.4, 0.4, 0.43)  # dark steel
+
+
 class FrameGeometry:
     """Compute 3D tube positions from parsed .bcad parameters.
 
@@ -90,9 +108,11 @@ class FrameGeometry:
         Z: right (drive side)
     """
 
-    def __init__(self, parser: BcadParser):
+    def __init__(self, parser: BcadParser, axle_dia: float = 10.0):
         self.p = parser
+        self.axle_dia = axle_dia
         self.tubes: list[TubeSpec] = []
+        self.plates: list[PlateSpec] = []
         self.warnings: list[str] = []
 
         # Computed reference points (populated by _compute_reference_points)
@@ -118,6 +138,8 @@ class FrameGeometry:
             self._make_seatstay_bridge()
         with self._feature("fork"):
             self._make_fork()
+        # Dropouts are plates, not tubes — kept in self.plates, not self.tubes.
+        self._make_dropouts()
         return self.tubes
 
     @contextmanager
@@ -505,6 +527,36 @@ class FrameGeometry:
             wall=2.0,
             color=(0.48, 0.48, 0.50),
         ))
+
+    # ── Dropouts (simple slot, generic) ────────────────────────────────────
+
+    def _make_dropouts(self):
+        """Generate a simple slotted dropout plate on each side.
+
+        Real frames use bought-in dropouts, so this is a generic slot plate
+        (not the frame's actual library part). It is derived from the plate
+        thickness, the plate footprint dimensions, and the axle diameter —
+        positioned at the rear axle, one per side of the dropout spacing.
+        """
+        p = self.p
+        thickness = p.get_float("Default_dropout_plate_thick", 7.0)
+        # Plate footprint: reuse the dropout size params when present.
+        width = p.get_float("Dropout F", 40.0)      # X extent
+        height = p.get_float("Dropout S", 30.0)     # Y extent
+        dropout_spacing = p.get_float("Dropout spacing", 135.0)
+        slot_width = self.axle_dia
+
+        z = dropout_spacing / 2
+        for side, z_sign in [("Drive", 1.0), ("NonDrive", -1.0)]:
+            center = Vec3(self.rear_axle.x, self.rear_axle.y, z_sign * z)
+            self.plates.append(PlateSpec(
+                name=f"Dropout_{side}",
+                center=center,
+                width=width,
+                height=height,
+                thickness=thickness,
+                slot_width=slot_width,
+            ))
 
     def dump_params(self) -> str:
         """Return a formatted string of computed geometry parameters."""

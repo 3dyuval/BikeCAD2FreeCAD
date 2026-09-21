@@ -1,19 +1,23 @@
 """FreeCAD script generator — turn TubeSpecs into a standalone macro."""
 
-from .geometry import TubeSpec
+from .geometry import TubeSpec, PlateSpec
 
 
 class FreeCADScriptGenerator:
-    """Generate a standalone FreeCAD Python macro from TubeSpecs."""
+    """Generate a standalone FreeCAD Python macro from TubeSpecs / PlateSpecs."""
 
-    def __init__(self, tubes: list[TubeSpec], hollow: bool = False):
+    def __init__(self, tubes: list[TubeSpec], hollow: bool = False,
+                 plates: list[PlateSpec] | None = None):
         self.tubes = tubes
         self.hollow = hollow
+        self.plates = plates or []
 
     def generate(self) -> str:
         parts = [self._header()]
         for tube in self.tubes:
             parts.append(self._make_tube(tube))
+        for plate in self.plates:
+            parts.append(self._make_plate(plate))
         parts.append(self._footer())
         return "\n".join(parts)
 
@@ -65,6 +69,34 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
     obj.ViewObject.ShapeColor = color
     return obj
 
+
+def make_dropout(name, center, width, height, thickness, slot_width,
+                 color=(0.4, 0.4, 0.43)):
+    """Create a simple slotted dropout plate centered at `center`.
+
+    The plate lies in the X-Y plane and is `thickness` thick along Z. A U-slot
+    of `slot_width` is cut open to the lower (-Y) edge for the axle.
+    """
+    cx, cy, cz = center
+    # Plate: box centered at (cx, cy) in X-Y, centered on cz in Z.
+    plate = Part.makeBox(
+        width, height, thickness,
+        FreeCAD.Vector(cx - width / 2, cy - height / 2, cz - thickness / 2),
+    )
+    # Slot: a box of slot_width, cut from the axle center down through the
+    # lower edge. Extends slightly beyond the plate so the cut is clean.
+    slot = Part.makeBox(
+        slot_width, height / 2 + 1.0, thickness + 2.0,
+        FreeCAD.Vector(cx - slot_width / 2, cy - height / 2 - 1.0,
+                       cz - thickness / 2 - 1.0),
+    )
+    shape = plate.cut(slot)
+
+    obj = doc.addObject("Part::Feature", name)
+    obj.Shape = shape
+    obj.ViewObject.ShapeColor = color
+    return obj
+
 '''
 
     def _make_tube(self, t: TubeSpec) -> str:
@@ -80,6 +112,17 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
             f"    color=({t.color[0]:.2f}, {t.color[1]:.2f}, {t.color[2]:.2f}))\n"
         )
 
+    def _make_plate(self, pl: PlateSpec) -> str:
+        c = pl.center.tuple()
+        return (
+            f'make_dropout("{pl.name}",\n'
+            f"    center=({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f}),\n"
+            f"    width={pl.width:.2f}, height={pl.height:.2f}, "
+            f"thickness={pl.thickness:.2f},\n"
+            f"    slot_width={pl.slot_width:.2f},\n"
+            f"    color=({pl.color[0]:.2f}, {pl.color[1]:.2f}, {pl.color[2]:.2f}))\n"
+        )
+
     def _footer(self) -> str:
         return """
 doc.recompute()
@@ -92,5 +135,5 @@ try:
 except Exception:
     pass  # headless mode
 
-print("BikeFrame created successfully with %d tubes." % len(doc.Objects))
+print("BikeFrame created successfully with %d parts." % len(doc.Objects))
 """
