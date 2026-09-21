@@ -207,6 +207,25 @@ class FrameGeometry:
         fork_atc = p.get_float(f"FORK{fork_type}L", 445.0)
         fork_rake = p.get_float(f"FORK{fork_type}R", 55.0)
 
+        # ── Dropout mode ──
+        # BikeCAD defines the rear dropout in one of two modes:
+        #   DropoutParamOrStatic == 0 → "static drawing": the dropout is a
+        #       built-in library part (StaticDropout, e.g. "DR0001" = Paragon
+        #       DR0001). The "Dropout joint N" array is IGNORED by BikeCAD in
+        #       this mode — it is dead/leftover state, not the plate shape.
+        #   DropoutParamOrStatic == 1 → "parameters": "Dropout model" picks a
+        #       family (socket/hooded/…) and only THEN is "Dropout joint N"
+        #       a live, decodable plate profile.
+        # We do NOT parse the joint array either way: this tube model places
+        # stay endpoints from rear_axle + Dropout spacing and never needs the
+        # dropout plate outline. The mode is recorded only for the dump/report.
+        self.dropout_is_static = p.get_int("DropoutParamOrStatic", 0) == 0
+        self.dropout_model = (
+            p.get_str("StaticDropout", "?")
+            if self.dropout_is_static
+            else p.get_str("Dropout model", "?")
+        )
+
         # ── Reference points ──
 
         # Head tube top (defines the Stack & Reach point)
@@ -259,6 +278,11 @@ class FrameGeometry:
             "ST length": st_length,
             "Fork ATC": fork_atc,
             "Fork rake": fork_rake,
+            "Dropout mode": (
+                f"static ({self.dropout_model})"
+                if self.dropout_is_static
+                else f"parametric ({self.dropout_model})"
+            ),
             "HT top": f"({self.ht_top.x:.1f}, {self.ht_top.y:.1f})",
             "HT bottom": f"({self.ht_bottom.x:.1f}, {self.ht_bottom.y:.1f})",
             "ST top": f"({self.st_top.x:.1f}, {self.st_top.y:.1f})",
