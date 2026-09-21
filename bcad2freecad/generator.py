@@ -1,23 +1,23 @@
 """FreeCAD script generator — turn TubeSpecs into a standalone macro."""
 
-from .geometry import TubeSpec, PlateSpec
+from .geometry import TubeSpec, ParameterizedSocket
 
 
 class FreeCADScriptGenerator:
-    """Generate a standalone FreeCAD Python macro from TubeSpecs / PlateSpecs."""
+    """Generate a standalone FreeCAD Python macro from tubes and dropouts."""
 
     def __init__(self, tubes: list[TubeSpec], hollow: bool = False,
-                 plates: list[PlateSpec] | None = None):
+                 dropouts: list[ParameterizedSocket] | None = None):
         self.tubes = tubes
         self.hollow = hollow
-        self.plates = plates or []
+        self.dropouts = dropouts or []
 
     def generate(self) -> str:
         parts = [self._header()]
         for tube in self.tubes:
             parts.append(self._make_tube(tube))
-        for plate in self.plates:
-            parts.append(self._make_plate(plate))
+        for dropout in self.dropouts:
+            parts.append(self._make_dropout(dropout))
         parts.append(self._footer())
         return "\n".join(parts)
 
@@ -71,13 +71,15 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
 
 
 def make_dropout(name, center, width, height, thickness, slot_width,
-                 fillet=0.0, color=(0.4, 0.4, 0.43)):
-    """Create a simple slotted dropout plate centered at `center`.
+                 fillet=0.0, tabs=(), color=(0.4, 0.4, 0.43)):
+    """Create a parameterizedSocket dropout: slotted plate + stay-socket tabs.
 
     The plate lies in the X-Y plane and is `thickness` thick along Z. A U-slot
     of `slot_width` is cut open to the lower (-Y) edge for the axle. Outer
-    corners are rounded by `fillet` (BikeCAD rounds these but has no parameter
-    for it, so it is a fixed cosmetic value).
+    corners are rounded by `fillet`. Each entry in `tabs` is
+    (start_xyz, dir_xyz, length, size): a socket stub extending from `start`
+    along `dir` for `length`, radius |size|/2. A negative `size` means the stay
+    tube inserts into the socket (still drawn as the stub the tube fits over).
     """
     cx, cy, cz = center
     # Plate: box centered at (cx, cy) in X-Y, centered on cz in Z.
@@ -107,6 +109,16 @@ def make_dropout(name, center, width, height, thickness, slot_width,
     )
     shape = plate.cut(slot)
 
+    # Stay-socket tabs: a cylinder from each socket point along its stay axis.
+    for (sx, sy, sz), (dx, dy, dz), length, size in tabs:
+        radius = max(abs(size), 0.5) / 2 + 2.0  # stub the tube fits over
+        base = FreeCAD.Vector(sx, sy, sz)
+        direction = FreeCAD.Vector(dx, dy, dz)
+        if direction.Length < 1e-6:
+            continue
+        stub = Part.makeCylinder(radius, length, base, direction)
+        shape = shape.fuse(stub)
+
     obj = doc.addObject("Part::Feature", name)
     obj.Shape = shape
     obj.ViewObject.ShapeColor = color
@@ -127,15 +139,29 @@ def make_dropout(name, center, width, height, thickness, slot_width,
             f"    color=({t.color[0]:.2f}, {t.color[1]:.2f}, {t.color[2]:.2f}))\n"
         )
 
-    def _make_plate(self, pl: PlateSpec) -> str:
-        c = pl.center.tuple()
+    def _make_dropout(self, d: ParameterizedSocket) -> str:
+        # Plate center = axle, shifted forward by Z (keeps axle fixed).
+        cx = d.axle.x + d.Z
+        cy = d.axle.y
+        cz = d.axle.z
+        # Footprint: axle hole plus A of material all round → span = 2*(r + A).
+        span = 2 * (d.slotWidth / 2 + d.A)
+
+        tabs = []
+        for sock in (d.chainstaySocket, d.seatstaySocket):
+            if sock is None:
+                continue
+            start = (cx + sock.x, cy + sock.y, cz + sock.z)
+            direction = (sock.axis.x, sock.axis.y, sock.axis.z)
+            tabs.append((start, direction, d.tabLength, d.t))
+
         return (
-            f'make_dropout("{pl.name}",\n'
-            f"    center=({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f}),\n"
-            f"    width={pl.width:.2f}, height={pl.height:.2f}, "
-            f"thickness={pl.thickness:.2f},\n"
-            f"    slot_width={pl.slot_width:.2f}, fillet={pl.fillet:.2f},\n"
-            f"    color=({pl.color[0]:.2f}, {pl.color[1]:.2f}, {pl.color[2]:.2f}))\n"
+            f'make_dropout("{d.name}",\n'
+            f"    center=({cx:.2f}, {cy:.2f}, {cz:.2f}),\n"
+            f"    width={span:.2f}, height={span:.2f}, thickness={d.T:.2f},\n"
+            f"    slot_width={d.slotWidth:.2f}, fillet={d.fillet:.2f},\n"
+            f"    tabs={tabs!r},\n"
+            f"    color=({d.color[0]:.2f}, {d.color[1]:.2f}, {d.color[2]:.2f}))\n"
         )
 
     def _footer(self) -> str:

@@ -11,10 +11,13 @@ from .parser import BcadParser
 from .geometry import (
     Vec3,
     TubeSpec,
+    StaySocket,
+    ParameterizedSocket,
     FrameGeometry,
     filter_tubes,
     TUBE_FEATURES,
     ALL_FEATURES,
+    SUPPORTED_DROPOUT_TYPES,
 )
 from .generator import FreeCADScriptGenerator
 
@@ -22,9 +25,12 @@ __all__ = [
     "BcadParser",
     "Vec3",
     "TubeSpec",
+    "StaySocket",
+    "ParameterizedSocket",
     "FrameGeometry",
     "FreeCADScriptGenerator",
     "filter_tubes",
     "TUBE_FEATURES",
     "ALL_FEATURES",
+    "SUPPORTED_DROPOUT_TYPES",
 ]

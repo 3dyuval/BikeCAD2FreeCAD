@@ -267,32 +267,41 @@ class TestFilterTubes:
 
 
 class TestDropouts:
-    def test_two_dropout_plates(self, geom):
-        assert len(geom.plates) == 2
-        names = {p.name for p in geom.plates}
+    def test_two_parameterized_sockets(self, geom):
+        assert len(geom.dropouts) == 2
+        names = {d.name for d in geom.dropouts}
         assert names == {"Dropout_Drive", "Dropout_NonDrive"}
 
-    def test_plates_mirror_across_z(self, geom):
-        drive = next(p for p in geom.plates if p.name == "Dropout_Drive")
-        nd = next(p for p in geom.plates if p.name == "Dropout_NonDrive")
-        assert drive.center.z > 0 and nd.center.z < 0
-        assert abs(drive.center.z + nd.center.z) < 1e-6  # symmetric
+    def test_is_socket_type(self, geom):
+        assert geom.dropout_type == "socket"
+        assert all(d.type == "socket" for d in geom.dropouts)
 
-    def test_plate_at_rear_axle(self, geom):
-        for p in geom.plates:
-            assert abs(p.center.x - geom.rear_axle.x) < 1e-6
-            assert abs(p.center.y - geom.rear_axle.y) < 1e-6
+    def test_mirror_across_z(self, geom):
+        drive = next(d for d in geom.dropouts if d.name == "Dropout_Drive")
+        nd = next(d for d in geom.dropouts if d.name == "Dropout_NonDrive")
+        assert drive.axle.z > 0 and nd.axle.z < 0
+        assert abs(drive.axle.z + nd.axle.z) < 1e-6  # symmetric
+
+    def test_axle_at_rear_axle(self, geom):
+        for d in geom.dropouts:
+            assert abs(d.axle.x - geom.rear_axle.x) < 1e-6
+            assert abs(d.axle.y - geom.rear_axle.y) < 1e-6
+
+    def test_has_both_stay_sockets(self, geom):
+        for d in geom.dropouts:
+            assert d.chainstaySocket is not None
+            assert d.seatstaySocket is not None
 
     def test_slot_width_follows_axle_dia(self, sample_bcad):
         from bcad2freecad import BcadParser, FrameGeometry
         g = FrameGeometry(BcadParser(str(sample_bcad)), axle_dia=12.0)
         g.compute()
-        assert all(abs(p.slot_width - 12.0) < 1e-6 for p in g.plates)
+        assert all(abs(d.slotWidth - 12.0) < 1e-6 for d in g.dropouts)
 
     def test_fillet_is_the_fixed_constant(self, geom):
         from bcad2freecad.geometry import DROPOUT_FILLET
         # Fillet is a fixed cosmetic constant, not a parameter or CLI option.
-        assert all(p.fillet == DROPOUT_FILLET for p in geom.plates)
+        assert all(d.fillet == DROPOUT_FILLET for d in geom.dropouts)
 
 
 class TestFreeCADScriptGenerator:

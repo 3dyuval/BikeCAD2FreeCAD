@@ -7,7 +7,7 @@ TubeSpec objects.
 
 import math
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .parser import BcadParser
 
@@ -21,6 +21,16 @@ ALL_FEATURES = TUBE_FEATURES + ("dropout",)
 # (confirmed absent), so this is a fixed cosmetic constant, not a CLI option.
 # Value chosen to match BikeCAD's rendered corner rounding (~5mm).
 DROPOUT_FILLET = 5.0
+
+# How far a stay-socket tab extends toward its stay (mm). BikeCAD's tab length
+# is arbitrary/simplified, so this is a fixed constant, not a parameter.
+DROPOUT_TAB_LENGTH = 15.0
+
+# Parameterized dropout types we can actually build. BikeCAD's dropout panel
+# offers socket / plate / hood; only "socket" is modelled so far. A --dropout
+# request for any other type (or a static library part) must error rather than
+# silently emit a socket.
+SUPPORTED_DROPOUT_TYPES = ("socket",)
 
 
 def filter_tubes(tubes: list["TubeSpec"], features: set[str]) -> list["TubeSpec"]:
@@ -86,22 +96,53 @@ class TubeSpec:
 
 
 @dataclass
-class PlateSpec:
-    """A simple slotted dropout plate.
+class StaySocket:
+    """One stay socket on a dropout, named as the BikeCAD panel labels it.
 
-    A flat rectangular plate lying in the X-Y plane (frame plane), extruded
-    along Z by `thickness`, centered at `center`. A U-slot of width
-    `slot_width` is cut open to the lower (-Y) edge so the axle can slide in.
+    `x`, `y`, `z` are the socket position relative to the axle center (the
+    panel's Cx/Cy/Cz for the chainstay, Sx/Sy/Sz for the seatstay). `axis` is
+    the unit vector along the stay the socket tab extends toward.
+    """
+    x: float
+    y: float
+    z: float
+    axis: Vec3
+
+
+@dataclass
+class ParameterizedSocket:
+    """A BikeCAD "Define by parameters" dropout — the parameterizedSocket type.
+
+    Fields mirror the BikeCAD dropout panel so the code reads like the UI:
+
+        type            socket | plate | hood
+        derailleurHanger, sliding, thruAxle   — the panel's three checkboxes
+        A               linear dim, axle hole circumference → outside edge
+        T               plate material thickness (the "Z view" thickness)
+        Z               translates the dropout toward the front of the bike
+                        while keeping the axle in place (moves the stays)
+        t               socket insert fit; negative = stay tube fits INTO it
+        chainstaySocket / seatstaySocket   — the Cx/Cy/Cz and Sx/Sy/Sz sockets
+
+    Only the `socket` type carries stay sockets; plate/hood are not modelled.
     """
     name: str
-    center: Vec3            # plate center (at the rear axle)
-    width: float            # X extent of the plate
-    height: float           # Y extent of the plate
-    thickness: float        # Z extent (plate thickness)
-    slot_width: float       # width of the axle slot (~ axle diameter)
-    fillet: float = DROPOUT_FILLET  # outer corner rounding (fixed constant)
+    axle: Vec3              # rear axle center (the dropout origin)
+    type: str = "socket"
+    derailleurHanger: bool = False
+    sliding: bool = False
+    thruAxle: bool = False
+    A: float = 20.0
+    T: float = 10.0
+    Z: float = 0.0
+    t: float = -1.0
+    slotWidth: float = 10.0     # axle slot width (~ axle diameter)
+    fillet: float = DROPOUT_FILLET
+    tabLength: float = DROPOUT_TAB_LENGTH
+    chainstaySocket: "StaySocket | None" = None
+    seatstaySocket: "StaySocket | None" = None
     feature: str = "dropout"
-    color: tuple[float, float, float] = (0.4, 0.4, 0.43)  # dark steel
+    color: tuple[float, float, float] = (0.4, 0.4, 0.43)
 
 
 class FrameGeometry:
@@ -118,7 +159,8 @@ class FrameGeometry:
         self.p = parser
         self.axle_dia = axle_dia
         self.tubes: list[TubeSpec] = []
-        self.plates: list[PlateSpec] = []
+        self.dropouts: list[ParameterizedSocket] = []
+        self.dropout_type: str = "socket"  # set in _make_dropouts
         self.warnings: list[str] = []
 
         # Computed reference points (populated by _compute_reference_points)
@@ -144,7 +186,7 @@ class FrameGeometry:
             self._make_seatstay_bridge()
         with self._feature("fork"):
             self._make_fork()
-        # Dropouts are plates, not tubes — kept in self.plates, not self.tubes.
+        # Dropouts are plates, not tubes — kept in self.dropouts, not tubes.
         self._make_dropouts()
         return self.tubes
 
@@ -534,34 +576,86 @@ class FrameGeometry:
             color=(0.48, 0.48, 0.50),
         ))
 
-    # ── Dropouts (simple slot, generic) ────────────────────────────────────
+    # ── Dropouts (parameterizedSocket) ─────────────────────────────────────
+    #
+    # NOTE: this is a STUB. It models only the "socket" dropout type as a
+    # slotted plate + two round stay stubs — a deliberate simplification of
+    # BikeCAD's real socket geometry. It can be refined further either in the
+    # modeller (richer solid: true tab cross-section, hole, hood/plate types,
+    # derailleur-hanger/sliding/thru-axle variants) or exposed through the CLI
+    # (flags to override A/T/Z/t, tab length, axle diameter, slot direction).
 
     def _make_dropouts(self):
-        """Generate a simple slotted dropout plate on each side.
+        """Build a parameterizedSocket dropout per side, read from the panel.
 
-        Real frames use bought-in dropouts, so this is a generic slot plate
-        (not the frame's actual library part). It is derived from the plate
-        thickness, the plate footprint dimensions, and the axle diameter —
-        positioned at the rear axle, one per side of the dropout spacing.
+        BikeCAD's "Define by parameters" dropout stores its panel fields in the
+        (positionally-named) `Dropout joint N` array plus `Dropout ADJ`. These
+        keys were verified by the signpost method (set a unique value in the
+        UI, save, grep):
+
+            type                = Dropout model / socket panel  (socket here)
+            A                   = Dropout joint 15
+            T                   = Dropout joint 8
+            Z                   = Dropout ADJ
+            t                   = Dropout joint 13   (negative = insert fit)
+            chainstaySocket Cx,Cy,Cz = Dropout joint 0,1,2  (mirror 21,22,23)
+            seatstaySocket  Sx,Sy,Sz = Dropout joint 3,4,5  (mirror 24,25,26)
+
+        Values are only live in parametric mode; the defaults keep a static-
+        mode file producing a plausible socket.
         """
         p = self.p
-        thickness = p.get_float("Default_dropout_plate_thick", 7.0)
-        # Plate footprint: reuse the dropout size params when present.
-        width = p.get_float("Dropout F", 40.0)      # X extent
-        height = p.get_float("Dropout S", 30.0)     # Y extent
-        dropout_spacing = p.get_float("Dropout spacing", 135.0)
-        slot_width = self.axle_dia
 
-        z = dropout_spacing / 2
+        # Detect the dropout type from the file. "DROPOUT STYLE" reports the
+        # socket/plate/hood family (e.g. SOCKET_STYLE_DROPOUT). We only model
+        # the socket type; the CLI errors on --dropout for anything else.
+        style = p.get_str("DROPOUT STYLE", "")
+        if "SOCKET" in style.upper():
+            self.dropout_type = "socket"
+        elif "PLATE" in style.upper():
+            self.dropout_type = "plate"
+        elif "HOOD" in style.upper():
+            self.dropout_type = "hood"
+        else:
+            self.dropout_type = "socket"  # default assumption
+
+        # Panel scalars (named as the BikeCAD dropout schema).
+        A = p.get_float("Dropout joint 15", 20.0)
+        T = p.get_float("Dropout joint 8", 10.0)
+        Z = p.get_float("Dropout ADJ", 0.0)
+        t = p.get_float("Dropout joint 13", -1.0)
+        dropoutSpacing = p.get_float("Dropout spacing", 135.0)
+
+        # Stay axes (in the frame plane) the socket tabs extend along.
+        chainstayAxis = (self.bb_center - self.rear_axle).normalized()
+        seatAngle = math.radians(p.get_float("Seat angle", 73.0))
+        seatStayOffset = p.get_float("Seat stay offset", 35.0)
+        seatTubeDir = Vec3(-math.cos(seatAngle), math.sin(seatAngle), 0)
+        seatstayJunction = self.st_top - seatTubeDir * seatStayOffset
+        seatstayAxis = (seatstayJunction - self.rear_axle).normalized()
+
+        halfSpacing = dropoutSpacing / 2
         for side, z_sign in [("Drive", 1.0), ("NonDrive", -1.0)]:
-            center = Vec3(self.rear_axle.x, self.rear_axle.y, z_sign * z)
-            self.plates.append(PlateSpec(
+            axle = Vec3(self.rear_axle.x, self.rear_axle.y,
+                        z_sign * halfSpacing)
+            self.dropouts.append(ParameterizedSocket(
                 name=f"Dropout_{side}",
-                center=center,
-                width=width,
-                height=height,
-                thickness=thickness,
-                slot_width=slot_width,
+                axle=axle,
+                type="socket",
+                A=A, T=T, Z=Z, t=t,
+                slotWidth=self.axle_dia,
+                chainstaySocket=StaySocket(
+                    x=p.get_float("Dropout joint 0", 0.0),
+                    y=p.get_float("Dropout joint 1", 0.0),
+                    z=z_sign * p.get_float("Dropout joint 2", 0.0),
+                    axis=Vec3(chainstayAxis.x, chainstayAxis.y, 0),
+                ),
+                seatstaySocket=StaySocket(
+                    x=p.get_float("Dropout joint 3", 0.0),
+                    y=p.get_float("Dropout joint 4", 0.0),
+                    z=z_sign * p.get_float("Dropout joint 5", 0.0),
+                    axis=Vec3(seatstayAxis.x, seatstayAxis.y, 0),
+                ),
             ))
 
     def dump_params(self) -> str:
