@@ -5,7 +5,9 @@ import sys
 from pathlib import Path
 
 from .parser import BcadParser
-from .geometry import FrameGeometry, filter_tubes, TUBE_FEATURES
+from .geometry import (
+    FrameGeometry, filter_tubes, TUBE_FEATURES, SUPPORTED_DROPOUT_TYPES,
+)
 from .generator import FreeCADScriptGenerator
 
 
@@ -91,15 +93,38 @@ def main():
         requested = {"frame", "stays", "fork"}
 
     tubes = filter_tubes(tubes, requested & set(TUBE_FEATURES))
-    plates = geom.plates if "dropout" in requested else []
 
-    if not tubes and not plates:
+    # Dropout: we only build the parameterized types we support (currently just
+    # "socket"). For an unsupported type (plate/hood, or a static library part):
+    #   - explicit --dropout  → hard error (you asked for the one thing we can't)
+    #   - implicit via --all  → warn and skip, still export the rest
+    dropouts = []
+    if "dropout" in requested:
+        supported = geom.dropout_type in SUPPORTED_DROPOUT_TYPES
+        if supported:
+            dropouts = geom.dropouts
+        elif args.dropout:  # explicitly requested
+            print(
+                f"Error: dropout type '{geom.dropout_type}' is not supported "
+                f"(supported: {', '.join(SUPPORTED_DROPOUT_TYPES)}). "
+                "Cannot export --dropout for this frame.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        else:  # bundled via --all / default
+            print(
+                f"  Warning: dropout type '{geom.dropout_type}' is not "
+                "supported; skipping the dropout, exporting the rest.",
+                file=sys.stderr,
+            )
+
+    if not tubes and not dropouts:
         print("Error: no exportable geometry for the selected features.",
               file=sys.stderr)
         sys.exit(1)
 
     # Generate FreeCAD script
-    gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, plates=plates)
+    gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, dropouts=dropouts)
     script = gen.generate()
 
     # Determine output path
@@ -109,7 +134,7 @@ def main():
         out_path = bcad_path.with_name(bcad_path.stem + "_freecad.py")
 
     out_path.write_text(script)
-    n = len(tubes) + len(plates)
+    n = len(tubes) + len(dropouts)
     print(f"Wrote {n} parts to {out_path}")
     print(f"Open in FreeCAD: Macro > Execute Macro > {out_path.name}")
 
