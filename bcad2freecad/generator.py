@@ -70,52 +70,56 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
     return obj
 
 
-def make_dropout(name, center, width, height, thickness, slot_width,
-                 slot_angle=180.0, slot_length=50.0, fillet=0.0, tabs=(),
+def make_dropout(name, center, plate_radius, thickness, slot_width,
+                 slot_angle=180.0, slot_length=50.0, tabs=(),
                  color=(0.4, 0.4, 0.43)):
-    """Create a parameterizedSocket dropout: slotted plate + stay-socket tabs.
+    """Create a parameterizedSocket dropout: an ear plate + stay-socket tabs.
 
-    The plate lies in the X-Y plane and is `thickness` thick along Z. A U-slot
-    of width `slot_width` and length `slot_length` (D, from the axle center to
-    its rounded end) is cut opening in the direction `slot_angle` (degrees from
-    +X, CCW: 0=forward, 90=up, 180/-180=rear, -90=down). Outer corners are
-    rounded by `fillet`. Each entry in `tabs` is (start_xyz, dir_xyz, length,
-    size): a socket stub from `start` along `dir`. Negative `size` means the
-    stay tube inserts into the socket.
+    The plate is a "dropout ear": a body of radius `plate_radius`
+    (= axle_radius + A, the concentric material past the hole circumference)
+    around the axle, STRETCHED along the slot axis by `slot_length` (D) so it
+    contains the slot — a capsule/stadium in the X-Y plane, `thickness` (T)
+    thick along Z. A U-slot of `slot_width` and length `slot_length` is cut
+    opening in direction `slot_angle` (deg from +X CCW: 0=fwd, 90=up,
+    180/-180=rear, -90=down). Each `tabs` entry is (start_xyz, dir_xyz, length,
+    size): a socket stub from `start` along `dir`; negative `size` = insert.
     """
     cx, cy, cz = center
-    # Plate: box centered at (cx, cy) in X-Y, centered on cz in Z.
-    plate = Part.makeBox(
-        width, height, thickness,
-        FreeCAD.Vector(cx - width / 2, cy - height / 2, cz - thickness / 2),
-    )
 
-    # Round the plate's vertical edges (those running along Z) before cutting
-    # the slot, so only the outer corners get rounded. Guarded: a fillet
-    # failure must not abort the whole macro.
-    if fillet > 0:
-        z_edges = [e for e in plate.Edges
-                   if abs(e.Vertexes[0].Z - e.Vertexes[1].Z) > 1e-6]
-        try:
-            plate = plate.makeFillet(min(fillet, width / 2 - 0.1,
-                                         height / 2 - 0.1), z_edges)
-        except Exception:
-            pass  # keep sharp corners if the fillet can't be applied
+    def capsule(radius, length, zt, zbase):
+        """A stadium along +X (built at origin): circle at 0, circle at
+        `length`, joined by a box; extruded `zt` in Z from `zbase`."""
+        c0 = Part.makeCylinder(radius, zt, FreeCAD.Vector(0, 0, zbase),
+                               FreeCAD.Vector(0, 0, 1))
+        c1 = Part.makeCylinder(radius, zt, FreeCAD.Vector(length, 0, zbase),
+                               FreeCAD.Vector(0, 0, 1))
+        body = Part.makeBox(length, 2 * radius, zt,
+                            FreeCAD.Vector(0, -radius, zbase))
+        return c0.fuse(c1).fuse(body)
 
-    # U-slot: a rectangle (slot_width x slot_length) with a rounded end — a box
-    # fused with a cylinder cap at the far end (a "stadium"/capsule cross
-    # section). Built along +X from the axle, then rotated by slot_angle. The
-    # extra 1mm at the mouth keeps the cut clean where it opens.
-    zt = thickness + 2.0
-    z0 = cz - thickness / 2 - 1.0
+    def place(shape):
+        """Orient a slot-axis-aligned shape by slot_angle, move to the axle."""
+        shape.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0, 0, 1),
+                     slot_angle)
+        shape.translate(FreeCAD.Vector(cx, cy, 0))
+        return shape
+
+    # Plate ear: capsule of `plate_radius`, stretched along the slot axis by
+    # slot_length so the D-long slot fits. `thickness` (T) thick, centered on Z.
+    plate = place(capsule(plate_radius, slot_length, thickness,
+                          cz - thickness / 2))
+
+    # U-slot: a rounded seat at the axle end + an open channel to the outer
+    # edge. Only the AXLE end is rounded (the axle seat); the outer end is left
+    # open (flat) so the axle slides in — a U, not a closed capsule.
     r = slot_width / 2
-    slot = Part.makeBox(slot_length + 1.0, slot_width, zt,
-                        FreeCAD.Vector(-1.0, -r, z0))
-    cap = Part.makeCylinder(r, zt, FreeCAD.Vector(slot_length, 0, z0),
-                            FreeCAD.Vector(0, 0, 1))
-    slot = slot.fuse(cap)
-    slot.rotate(FreeCAD.Vector(0, 0, cz), FreeCAD.Vector(0, 0, 1), slot_angle)
-    slot.translate(FreeCAD.Vector(cx, cy, 0))
+    zt = thickness + 2.0
+    zb = cz - thickness / 2 - 1.0
+    seat = Part.makeCylinder(r, zt, FreeCAD.Vector(0, 0, zb),
+                             FreeCAD.Vector(0, 0, 1))              # round seat
+    channel = Part.makeBox(slot_length + plate_radius + 1.0, slot_width, zt,
+                           FreeCAD.Vector(0, -r, zb))             # open to edge
+    slot = place(seat.fuse(channel))
     shape = plate.cut(slot)
 
     # Stay-socket tabs: a cylinder from each socket point along its stay axis.
@@ -153,9 +157,9 @@ def make_dropout(name, center, width, height, thickness, slot_width,
         cx = d.axle.x + d.Z
         cy = d.axle.y
         cz = d.axle.z
-        # Footprint: axle hole plus A of material past the edge (A applied
-        # once, not on both sides) → span = axle_dia + A.
-        span = d.slotWidth + d.A
+        # A is concentric material past the hole circumference, so the ear's
+        # radius = axle_radius + A.
+        plate_radius = d.slotWidth / 2 + d.A
 
         tabs = []
         for sock in (d.chainstaySocket, d.seatstaySocket):
@@ -168,10 +172,9 @@ def make_dropout(name, center, width, height, thickness, slot_width,
         return (
             f'make_dropout("{d.name}",\n'
             f"    center=({cx:.2f}, {cy:.2f}, {cz:.2f}),\n"
-            f"    width={span:.2f}, height={span:.2f}, thickness={d.T:.2f},\n"
+            f"    plate_radius={plate_radius:.2f}, thickness={d.T:.2f},\n"
             f"    slot_width={d.slotWidth:.2f}, slot_angle={d.slotAngle:.2f},\n"
-            f"    slot_length={d.slotLength:.2f}, fillet={d.fillet:.2f}, "
-            f"tabs={tabs!r},\n"
+            f"    slot_length={d.slotLength:.2f}, tabs={tabs!r},\n"
             f"    color=({d.color[0]:.2f}, {d.color[1]:.2f}, {d.color[2]:.2f}))\n"
         )
 
