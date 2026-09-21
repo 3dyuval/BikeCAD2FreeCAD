@@ -28,16 +28,16 @@ The scope is **frame and fork tubes only** — no wheels, brakes, dropouts, sadd
 
 ```bash
 # Generate a FreeCAD macro
-python bcad2freecad.py MyBike.bcad
+python -m bcad2freecad MyBike.bcad
 
 # Specify output filename
-python bcad2freecad.py MyBike.bcad -o my_frame.py
+python -m bcad2freecad MyBike.bcad -o my_frame.py
 
 # Inspect extracted geometry without generating a script
-python bcad2freecad.py MyBike.bcad --dump-params
+python -m bcad2freecad MyBike.bcad --dump-params
 
 # Generate hollow tubes (more realistic but slower to render)
-python bcad2freecad.py MyBike.bcad --hollow
+python -m bcad2freecad MyBike.bcad --hollow
 ```
 
 Then in FreeCAD: **Macro > Execute Macro** and select the generated `.py` file.
@@ -57,6 +57,7 @@ Computed Frame Geometry
   ST length..................... 560.0
   Fork ATC...................... 445.0
   Fork rake..................... 55.0
+  Dropout mode.................. static (DR0001)
   ...
 
 Tubes:
@@ -88,9 +89,12 @@ This is a v1 tool built by reverse-engineering the `.bcad` format. Known limitat
 
 ## How it works
 
-1. **BcadParser** reads the `.bcad` file (Java Properties XML) into a key-value store with typed getters
-2. **FrameGeometry** computes 3D endpoints for every tube from the parsed parameters, using the BB center as origin
-3. **FreeCADScriptGenerator** emits a standalone Python script that uses FreeCAD's `Part.makeCylinder()` and `Part.makeCone()` to create each tube
+The `bcad2freecad` package separates parsing from geometry from output:
+
+1. **`parser.py` — `BcadParser`** reads the `.bcad` file (Java Properties XML) into a key-value store with typed getters
+2. **`geometry.py` — `FrameGeometry`** computes 3D endpoints for every tube from the parsed parameters, using the BB center as origin
+3. **`generator.py` — `FreeCADScriptGenerator`** emits a standalone Python script that uses FreeCAD's `Part.makeCylinder()` and `Part.makeCone()` to create each tube
+4. **`cli.py`** wires these together for `python -m bcad2freecad`
 
 ## Running tests
 
