@@ -412,9 +412,20 @@ class TestFreeCADScriptGenerator:
         assert "def make_dropout_sketch" in script
         assert 'make_dropout_sketch("Dropout_Drive"' in script
         assert "Sketcher::SketchObject" in script
+        # Each dropout is a self-contained Part container (for later assembly).
+        assert 'doc.addObject("App::Part"' in script
+        assert "part.addObject(sk)" in script
         # No solid-dropout machinery in sketch mode
         assert "make_dropout(" not in script
         assert "makeFillet" not in script
+
+    def test_sketch_dropout_has_no_baked_placement(self, geom):
+        # Placement is left to the assembly step; the script bakes none in.
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
+                                     dropouts=geom.dropouts)
+        script = gen.generate()
+        assert "sk.Placement" not in script
+        assert "base=" not in script
 
     def test_sketch_dropout_has_named_constraints(self, geom):
         gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
