@@ -249,36 +249,63 @@ def make_axis(name, start, end):
     return obj
 
 
-def make_dropout_sketch(name, slot_length, slot_angle,
+def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
                         chainstay_xy, seatstay_xy):
-    """Build one dropout's centerline skeleton as a self-contained Part.
+    """Build one dropout's profile sketch as a self-contained Part.
 
     Returns an App::Part named `name` holding a Sketcher object (`<name>
     _profile`) at the local origin, identity placement. Each dropout is thus an
     independent, movable unit: contain it, then position it in an Assembly (the
     script does not bake in a world placement — assembly is done interactively).
 
-    The sketch is all construction geometry: the axle center point, the slot
-    centerline (axle -> mouth along slot_angle, length D), and the chainstay /
-    seatstay stay axes (axle -> each socket). The slot carries a length
-    dimension (D_slot_length); each stay axis carries its BikeCAD panel
-    components as named X/Y dimensions (Cx/Cy for the chainstay, Sx/Sy for the
-    seatstay), so every socket coordinate is independently editable. Authored
-    in the axle-local X (fore-aft) / Y (up) plane.
+    Construction skeleton: the axle center point, the slot centerline (axle ->
+    mouth along slot_angle, length D), and the chainstay / seatstay stay axes
+    (axle -> each socket). Named dims (D_slot_length, and Cx/Cy, Sx/Sy for the
+    socket components) make it parametric.
+
+    Real profile outline: the plate "ear" (a stadium of radius `plate_radius` =
+    axle + A, stretched along the slot axis by slot_length) with the U-slot cut
+    open at the mouth — traced as ONE continuous closed wire that breaches the
+    ear edge and wraps the rounded axle seat. Authored in the axle-local X
+    (fore-aft) / Y (up) plane.
     """
     V = FreeCAD.Vector
     part = doc.addObject("App::Part", name)
     part.Label = name
     sk = doc.addObject("Sketcher::SketchObject", name + "_profile")
     ang = math.radians(slot_angle)
-    mouth = V(math.cos(ang), math.sin(ang), 0) * slot_length
+    axis = V(math.cos(ang), math.sin(ang), 0)   # axle -> mouth
+    perp = V(-math.sin(ang), math.cos(ang), 0)  # slot half-width direction
+    mouth = axis * slot_length
+    far = axis * slot_length                     # ear far-end (mouth side) center
+    R = plate_radius
+    r = slot_width / 2.0
+    a_perp = math.atan2(perp.y, perp.x)          # world angle of +perp
     cs = V(chainstay_xy[0], chainstay_xy[1], 0)
     ss = V(seatstay_xy[0], seatstay_xy[1], 0)
 
+    # ── construction skeleton ──
     i_axle = sk.addGeometry(Part.Point(V(0, 0, 0)), True)
     i_slot = sk.addGeometry(Part.LineSegment(V(0, 0, 0), mouth), True)
     i_cs = sk.addGeometry(Part.LineSegment(V(0, 0, 0), cs), True)
     i_ss = sk.addGeometry(Part.LineSegment(V(0, 0, 0), ss), True)
+
+    # ── real outline: ear (stadium) with the U-slot cut open at the mouth ──
+    # Axle-side ear cap (full semicircle, radius R).
+    sk.addGeometry(Part.ArcOfCircle(Part.Circle(V(0, 0, 0), V(0, 0, 1), R),
+                                    a_perp, a_perp + math.pi), False)
+    # Upper long side (ear near -> far).
+    sk.addGeometry(Part.LineSegment(perp * R, far + perp * R), False)
+    # Upper mouth shoulder (ear edge R -> slot half-width r) then slot side in.
+    sk.addGeometry(Part.LineSegment(far + perp * R, far + perp * r), False)
+    sk.addGeometry(Part.LineSegment(far + perp * r, perp * r), False)
+    # Rounded axle seat (semicircle, radius r).
+    sk.addGeometry(Part.ArcOfCircle(Part.Circle(V(0, 0, 0), V(0, 0, 1), r),
+                                    a_perp, a_perp + math.pi), False)
+    # Lower slot side out, lower mouth shoulder, lower long side back to start.
+    sk.addGeometry(Part.LineSegment(-perp * r, far - perp * r), False)
+    sk.addGeometry(Part.LineSegment(far - perp * r, far - perp * R), False)
+    sk.addGeometry(Part.LineSegment(far - perp * R, -perp * R), False)
 
     def named(con, nm):
         c = sk.addConstraint(con)
@@ -367,9 +394,10 @@ def make_dropout_sketch(name, slot_length, slot_angle,
         )
 
     def _make_dropout_sketch(self, d: ParameterizedSocket) -> str:
-        # Same derivation as the solid; the sketch draws only the centerlines
-        # (slot + stay axes) in the axle-local XY frame, so socket positions
-        # use their in-plane x,y (z is out-of-plane for a planar sketch).
+        # Same derivation as the solid; the sketch draws the construction
+        # centerlines (slot + stay axes) plus the plate outline (ear + U-slot)
+        # in the axle-local XY frame, so socket positions use their in-plane
+        # x,y (z is out-of-plane for a planar sketch).
         v = self._compute_dropout(d)
         cs = v["chainstay"]
         ss = v["seatstay"]
@@ -377,6 +405,7 @@ def make_dropout_sketch(name, slot_length, slot_angle,
         ss_xy = ss["local_xy"] if ss is not None else (0.0, 0.0)
         return (
             f'make_dropout_sketch("{d.name}",\n'
+            f"    plate_radius={v['plate_radius']:.2f}, slot_width={d.slotWidth:.2f},\n"
             f"    slot_length={d.slotLength:.2f}, slot_angle={d.slotAngle:.2f},\n"
             f"    chainstay_xy=({cs_xy[0]:.2f}, {cs_xy[1]:.2f}),\n"
             f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}))\n"
