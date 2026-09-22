@@ -5,9 +5,8 @@ import sys
 from pathlib import Path
 
 from .parser import BcadParser
-from .geometry import (
-    FrameGeometry, filter_tubes, TUBE_FEATURES, SUPPORTED_DROPOUT_TYPES,
-)
+from .geoframe import FrameGeometry, filter_tubes, TUBE_FEATURES
+from .geodropouts import SUPPORTED_DROPOUT_TYPES
 from .generator import FreeCADScriptGenerator
 
 

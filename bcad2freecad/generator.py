@@ -1,6 +1,7 @@
 """FreeCAD script generator — turn TubeSpecs into a standalone macro."""
 
-from .geometry import TubeSpec, ParameterizedSocket
+from .geoframe import TubeSpec
+from .geodropouts import ParameterizedSocket
 
 
 class FreeCADScriptGenerator:

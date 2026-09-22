@@ -8,15 +8,17 @@ Public API (also the names the test suite imports):
 """
 
 from .parser import BcadParser
-from .geometry import (
+from .geoframe import (
     Vec3,
     TubeSpec,
-    StaySocket,
-    ParameterizedSocket,
     FrameGeometry,
     filter_tubes,
     TUBE_FEATURES,
     ALL_FEATURES,
+)
+from .geodropouts import (
+    StaySocket,
+    ParameterizedSocket,
     SUPPORTED_DROPOUT_TYPES,
 )
 from .generator import FreeCADScriptGenerator

@@ -299,12 +299,12 @@ class TestDropouts:
         assert all(abs(d.slotWidth - 12.0) < 1e-6 for d in g.dropouts)
 
     def test_fillet_is_the_fixed_constant(self, geom):
-        from bcad2freecad.geometry import DROPOUT_FILLET
+        from bcad2freecad.geodropouts import DROPOUT_FILLET
         # Fillet is a fixed cosmetic constant, not a parameter or CLI option.
         assert all(d.fillet == DROPOUT_FILLET for d in geom.dropouts)
 
     def test_slot_fillet_is_smaller_than_plate_fillet(self, geom):
-        from bcad2freecad.geometry import DROPOUT_SLOT_FILLET, DROPOUT_FILLET
+        from bcad2freecad.geodropouts import DROPOUT_SLOT_FILLET, DROPOUT_FILLET
         # The slot mouth is rounded by a smaller radius than the plate corners.
         assert DROPOUT_SLOT_FILLET < DROPOUT_FILLET
         assert all(d.slotFillet == DROPOUT_SLOT_FILLET for d in geom.dropouts)
