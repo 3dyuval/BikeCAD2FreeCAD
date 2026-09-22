@@ -249,33 +249,25 @@ def make_axis(name, start, end):
     return obj
 
 
-def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
+def make_dropout_sketch(name, slot_length, slot_angle,
                         chainstay_xy, seatstay_xy):
-    """Draw one dropout as a constrained Sketcher skeleton in the axle plane.
+    """Draw one dropout's centerline skeleton as a constrained Sketcher object.
 
-    Construction geometry: axle center, slot centerline, and the chainstay /
-    seatstay socket axes. Real geometry: the axle-hole circle, the plate-ear
-    circle (radius = axle + A), and the two slot side-lines. Named dimensional
-    constraints (slot_width_half, ear_radius, D_slot_length, socket distances)
-    make the skeleton parametric.
+    All construction geometry: the axle center point, the slot centerline
+    (axle -> mouth along slot_angle, length D), and the chainstay / seatstay
+    stay axes (axle -> each socket). Named distance constraints (D_slot_length,
+    chainstay_dist, seatstay_dist) make the skeleton parametric. Built in the
+    axle-local XY plane; world placement is applied separately.
     """
     V = FreeCAD.Vector
     sk = doc.addObject("Sketcher::SketchObject", name)
     ang = math.radians(slot_angle)
-    axis = V(math.cos(ang), math.sin(ang), 0)
-    perp = V(-math.sin(ang), math.cos(ang), 0)
-    r = slot_width / 2.0
-    mouth = axis * slot_length
-
-    i_hole = sk.addGeometry(Part.Circle(V(0, 0, 0), V(0, 0, 1), r), False)
-    i_ear = sk.addGeometry(Part.Circle(V(0, 0, 0), V(0, 0, 1), plate_radius), False)
-    i_s1 = sk.addGeometry(Part.LineSegment(perp * r, mouth + perp * r), False)
-    i_s2 = sk.addGeometry(Part.LineSegment(perp * -r, mouth + perp * -r), False)
+    mouth = V(math.cos(ang), math.sin(ang), 0) * slot_length
+    cs = V(chainstay_xy[0], chainstay_xy[1], 0)
+    ss = V(seatstay_xy[0], seatstay_xy[1], 0)
 
     i_axle = sk.addGeometry(Part.Point(V(0, 0, 0)), True)
     i_slot = sk.addGeometry(Part.LineSegment(V(0, 0, 0), mouth), True)
-    cs = V(chainstay_xy[0], chainstay_xy[1], 0)
-    ss = V(seatstay_xy[0], seatstay_xy[1], 0)
     i_cs = sk.addGeometry(Part.LineSegment(V(0, 0, 0), cs), True)
     i_ss = sk.addGeometry(Part.LineSegment(V(0, 0, 0), ss), True)
 
@@ -283,8 +275,6 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
         c = sk.addConstraint(con)
         sk.renameConstraint(c, nm)
         return c
-    named(Sketcher.Constraint("Radius", i_hole, r), "slot_width_half")
-    named(Sketcher.Constraint("Radius", i_ear, plate_radius), "ear_radius")
     named(Sketcher.Constraint("Distance", i_slot, slot_length), "D_slot_length")
     if cs.Length > 1e-6:
         named(Sketcher.Constraint("Distance", i_cs, cs.Length), "chainstay_dist")
@@ -295,7 +285,13 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
 
 '''
 
-    def _make_dropout(self, d: ParameterizedSocket) -> str:
+    def _compute_dropout(self, d: ParameterizedSocket) -> dict:
+        """Derive every value a dropout needs, once, for both output modes.
+
+        The solid emitter uses the full set (it extrudes); the sketch emitter
+        uses the subset it draws (centerlines). Sharing this derivation keeps
+        the two representations from drifting apart.
+        """
         # Plate origin = axle, shifted forward by Z (keeps axle fixed).
         cx = d.axle.x + d.Z
         cy = d.axle.y
@@ -313,19 +309,44 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
                      if s is not None]
         outer_z = cz + (max(socket_zs, key=abs) if socket_zs else 0.0)
 
-        tabs = []
+        # Per-socket geometry: world-space start, stay axis, and tab sizing.
+        sockets = []
         for sock in (d.chainstaySocket, d.seatstaySocket):
             if sock is None:
+                sockets.append(None)
                 continue
-            start = (cx + sock.x, cy + sock.y, cz + sock.z)
-            direction = (sock.axis.x, sock.axis.y, sock.axis.z)
-            tabs.append((start, direction, d.tabLength, sock.tubeDia, d.t))
+            sockets.append({
+                "start": (cx + sock.x, cy + sock.y, cz + sock.z),
+                "local_xy": (sock.x, sock.y),
+                "direction": (sock.axis.x, sock.axis.y, sock.axis.z),
+                "tube_dia": sock.tubeDia,
+            })
+
+        return {
+            "center": (cx, cy, cz),
+            "plate_radius": plate_radius,
+            "outer_z": outer_z,
+            "extrude_sign": extrude_sign,
+            "chainstay": sockets[0],
+            "seatstay": sockets[1],
+        }
+
+    def _make_dropout(self, d: ParameterizedSocket) -> str:
+        v = self._compute_dropout(d)
+        cx, cy, cz = v["center"]
+
+        tabs = []
+        for sock in (v["chainstay"], v["seatstay"]):
+            if sock is None:
+                continue
+            tabs.append((sock["start"], sock["direction"], d.tabLength,
+                         sock["tube_dia"], d.t))
 
         return (
             f'make_dropout("{d.name}",\n'
             f"    center=({cx:.2f}, {cy:.2f}, {cz:.2f}),\n"
-            f"    plate_radius={plate_radius:.2f}, thickness={d.T:.2f},\n"
-            f"    outer_z={outer_z:.2f}, extrude_sign={extrude_sign:.1f},\n"
+            f"    plate_radius={v['plate_radius']:.2f}, thickness={d.T:.2f},\n"
+            f"    outer_z={v['outer_z']:.2f}, extrude_sign={v['extrude_sign']:.1f},\n"
             f"    slot_width={d.slotWidth:.2f}, slot_angle={d.slotAngle:.2f},\n"
             f"    slot_length={d.slotLength:.2f}, slot_fillet={d.slotFillet:.2f},\n"
             f"    tab_style={d.type!r},\n"
@@ -334,16 +355,16 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
         )
 
     def _make_dropout_sketch(self, d: ParameterizedSocket) -> str:
-        # Planar skeleton in the axle-local XY frame: the sketch lives in one
-        # plane, so socket positions use their in-plane x,y (z is out-of-plane).
-        plate_radius = d.slotWidth / 2 + d.A
-        cs = d.chainstaySocket
-        ss = d.seatstaySocket
-        cs_xy = (cs.x, cs.y) if cs is not None else (0.0, 0.0)
-        ss_xy = (ss.x, ss.y) if ss is not None else (0.0, 0.0)
+        # Same derivation as the solid; the sketch draws only the centerlines
+        # (slot + stay axes) in the axle-local XY frame, so socket positions
+        # use their in-plane x,y (z is out-of-plane for a planar sketch).
+        v = self._compute_dropout(d)
+        cs = v["chainstay"]
+        ss = v["seatstay"]
+        cs_xy = cs["local_xy"] if cs is not None else (0.0, 0.0)
+        ss_xy = ss["local_xy"] if ss is not None else (0.0, 0.0)
         return (
             f'make_dropout_sketch("{d.name}",\n'
-            f"    plate_radius={plate_radius:.2f}, slot_width={d.slotWidth:.2f},\n"
             f"    slot_length={d.slotLength:.2f}, slot_angle={d.slotAngle:.2f},\n"
             f"    chainstay_xy=({cs_xy[0]:.2f}, {cs_xy[1]:.2f}),\n"
             f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}))\n"

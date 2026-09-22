@@ -420,8 +420,17 @@ class TestFreeCADScriptGenerator:
         gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
                                      dropouts=geom.dropouts)
         script = gen.generate()
-        for cname in ("slot_width_half", "ear_radius", "D_slot_length"):
+        for cname in ("D_slot_length", "chainstay_dist", "seatstay_dist"):
             assert cname in script
+
+    def test_sketch_dropout_is_centerlines_only(self, geom):
+        # Centerlines-only skeleton: no plate/ear/slot-width profile geometry.
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
+                                     dropouts=geom.dropouts)
+        script = gen.generate()
+        assert "Part.Circle" not in script
+        assert "slot_width_half" not in script
+        assert "ear_radius" not in script
 
     def test_solid_mode_has_no_axis(self, geom):
         gen = FreeCADScriptGenerator(geom.tubes, sketch=False)
