@@ -28,8 +28,9 @@ DROPOUT_SLOT_FILLET = 2.0
 
 # Parameterized dropout types we can build. BikeCAD's dropout panel offers
 # socket / plate / hood. socket and plate share the same body (ear + U-slot)
-# and differ only in the stay-tab shape (round stub vs flat tang); hood is not
-# modelled yet. A --dropout request for an unsupported type must error.
+# and differ only in the stay-tab shape (socket = round stub, plate = flat
+# tang); hood is not modelled yet. A --dropout request for an unsupported type
+# must error.
 SUPPORTED_DROPOUT_TYPES = ("socket", "plate")
 
 
@@ -62,11 +63,11 @@ class ParameterizedSocket:
         T               plate material thickness (the "Z view" thickness)
         Z               translates the dropout toward the front of the bike
                         while keeping the axle in place (moves the stays)
-        t               socket insert fit; negative = stay tube fits INTO it
+        t               tab insert fit; negative = stay tube fits INTO the tab
         chainstaySocket / seatstaySocket   — the Cx/Cy/Cz and Sx/Sy/Sz sockets
 
     socket and plate share these fields (they differ only in the stay-tab
-    shape — round stub vs flat tang); hood is not modelled.
+    shape — socket = round stub, plate = flat tang); hood is not modelled.
     """
     name: str
     axle: Vec3              # rear axle center (the dropout origin)
@@ -100,19 +101,22 @@ class ParameterizedSocket:
 # A/T/Z/t/tab-length/slot-direction are read from the file, not CLI-overridable.
 
 
-def detect_dropout_type(style: str) -> str:
-    """Map the "DROPOUT STYLE" family string to a modelled type.
+# BikeCAD's "DROPOUT STYLE" is a closed enum; map each token to our type name.
+# socket and plate are modelled (SUPPORTED_DROPOUT_TYPES); hood is recognised
+# but unsupported, so the CLI errors on it rather than silently substituting.
+DROPOUT_STYLE_TYPES = {
+    "SOCKET_STYLE_DROPOUT": "socket",
+    "PLATE_STYLE_DROPOUT": "plate",
+    "HOODED_STYLE_DROPOUT": "hood",
+}
 
-    socket and plate are modelled; hood and any unrecognised style fall back to
-    socket, and the CLI errors when an unsupported type is requested via
-    --dropout.
+
+def detect_dropout_type(style: str) -> str:
+    """Map a "DROPOUT STYLE" enum token to our dropout type name.
+
+    Unknown/absent tokens default to socket (the simplest buildable type).
     """
-    style = style.upper()
-    if "PLATE" in style:
-        return "plate"
-    if "HOOD" in style:
-        return "hood"
-    return "socket"
+    return DROPOUT_STYLE_TYPES.get(style.strip().upper(), "socket")
 
 
 def build_dropouts(geom) -> tuple[list[ParameterizedSocket], str]:

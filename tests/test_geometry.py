@@ -276,6 +276,15 @@ class TestDropouts:
         assert geom.dropout_type == "socket"
         assert all(d.type == "socket" for d in geom.dropouts)
 
+    def test_detect_dropout_type_maps_the_enum(self):
+        from bcad2freecad.geodropouts import detect_dropout_type as d
+        assert d("SOCKET_STYLE_DROPOUT") == "socket"
+        assert d("PLATE_STYLE_DROPOUT") == "plate"
+        assert d("HOODED_STYLE_DROPOUT") == "hood"
+        assert d("plate_style_dropout") == "plate"  # case-insensitive
+        assert d("") == "socket"                    # absent -> socket default
+        assert d("UNKNOWN_XYZ") == "socket"         # unknown -> socket default
+
     def test_mirror_across_z(self, geom):
         drive = next(d for d in geom.dropouts if d.name == "Dropout_Drive")
         nd = next(d for d in geom.dropouts if d.name == "Dropout_NonDrive")
