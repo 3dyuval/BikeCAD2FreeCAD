@@ -65,7 +65,8 @@ class ParameterizedSocket:
         t               socket insert fit; negative = stay tube fits INTO it
         chainstaySocket / seatstaySocket   — the Cx/Cy/Cz and Sx/Sy/Sz sockets
 
-    Only the `socket` type carries stay sockets; plate/hood are not modelled.
+    socket and plate share these fields (they differ only in the stay-tab
+    shape — round stub vs flat tang); hood is not modelled.
     """
     name: str
     axle: Vec3              # rear axle center (the dropout origin)
@@ -91,12 +92,12 @@ class ParameterizedSocket:
 
 # ── Dropouts (parameterizedSocket) ─────────────────────────────────────────
 #
-# NOTE: this is a STUB. It models only the "socket" dropout type as a
-# slotted plate + two round stay stubs — a deliberate simplification of
-# BikeCAD's real socket geometry. It can be refined further either in the
-# modeller (richer solid: true tab cross-section, hole, hood/plate types,
-# derailleur-hanger/sliding/thru-axle variants) or exposed through the CLI
-# (flags to override A/T/Z/t, tab length, axle diameter, slot direction).
+# Models the socket and plate dropout types: an ear plate (A, T) with a
+# D-length U-slot opening at angle ξ (rounded axle seat, filleted mouth) and
+# two stay tabs sized to the real stay-tube diameters — round stubs for socket,
+# flat tangs for plate. Still simplified: hood type is not modelled; the axle
+# hole and the derailleur-hanger / sliding / thru-axle variants are ignored;
+# A/T/Z/t/tab-length/slot-direction are read from the file, not CLI-overridable.
 
 
 def detect_dropout_type(style: str) -> str:
@@ -122,7 +123,7 @@ def build_dropouts(geom) -> tuple[list[ParameterizedSocket], str]:
     keys were verified by the signpost method (set a unique value in the
     UI, save, grep):
 
-        type                = Dropout model / socket panel  (socket here)
+        type                = DROPOUT STYLE  (socket / plate; see detect_dropout_type)
         A                   = Dropout joint 15
         T                   = Dropout joint 8
         Z                   = Dropout ADJ
