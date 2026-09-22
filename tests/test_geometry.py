@@ -445,6 +445,17 @@ class TestFreeCADScriptGenerator:
         assert "plate_radius=" in script      # ear sized by A + axle
         assert "slot_width=" in script
 
+    def test_sketch_dropout_carries_fillet_reference_dims(self, geom):
+        # Mouth fillets are applied by hand; the sketch carries their radii as
+        # named reference dims (lip_fillet, mouth_fillet) but scripts no fillet.
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
+                                     dropouts=geom.dropouts)
+        script = gen.generate()
+        assert '"lip_fillet"' in script
+        assert '"mouth_fillet"' in script
+        assert "slot_fillet=" in script
+        assert ".fillet(" not in script       # not scripted — user applies it
+
     def test_solid_mode_has_no_axis(self, geom):
         gen = FreeCADScriptGenerator(geom.tubes, sketch=False)
         script = gen.generate()

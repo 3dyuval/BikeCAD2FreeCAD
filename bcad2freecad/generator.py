@@ -250,7 +250,7 @@ def make_axis(name, start, end):
 
 
 def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
-                        chainstay_xy, seatstay_xy):
+                        slot_fillet, chainstay_xy, seatstay_xy):
     """Build one dropout's profile sketch as a self-contained Part.
 
     Returns an App::Part named `name` holding a Sketcher object (`<name>
@@ -268,6 +268,13 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
     open at the mouth — traced as ONE continuous closed wire that breaches the
     ear edge and wraps the rounded axle seat. Authored in the axle-local X
     (fore-aft) / Y (up) plane.
+
+    The two mouth fillets are NOT scripted (Sketcher's fillet tool renumbers
+    geometry mid-operation, which a blind macro can't track). Instead the sketch
+    carries their radii as named reference dimensions — `lip_fillet`
+    (= slot_width/2) and `mouth_fillet` (= slot_fillet) — so the user applies
+    each fillet by hand and sets its radius = Constraints.lip_fillet /
+    Constraints.mouth_fillet.
     """
     V = FreeCAD.Vector
     part = doc.addObject("App::Part", name)
@@ -318,6 +325,21 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
     named(Sketcher.Constraint("DistanceY", i_cs, 1, i_cs, 2, cs.y), "Cy")
     named(Sketcher.Constraint("DistanceX", i_ss, 1, i_ss, 2, ss.x), "Sx")
     named(Sketcher.Constraint("DistanceY", i_ss, 1, i_ss, 2, ss.y), "Sy")
+
+    # Fillet radii, carried as named reference dimensions the user drives the
+    # manual mouth fillets with (Sketcher's fillet tool renumbers geometry as
+    # it runs, so the fillets aren't scripted — the user picks the two lip
+    # edges and sets the radius = Constraints.lip_fillet / .mouth_fillet):
+    #   lip_fillet   = slot_width/2 — the inner lips (shoulder <-> slot side)
+    #   mouth_fillet = slot_fillet  — the outer corners (ear edge <-> shoulder)
+    # Parked on tiny construction circles below the profile, out of the way.
+    c_lip = sk.addGeometry(
+        Part.Circle(V(0, -R - 15, 0), V(0, 0, 1), r), True)
+    c_mouth = sk.addGeometry(
+        Part.Circle(V(0, -R - 30, 0), V(0, 0, 1), max(slot_fillet, 0.1)), True)
+    named(Sketcher.Constraint("Radius", c_lip, r), "lip_fillet")
+    named(Sketcher.Constraint("Radius", c_mouth, max(slot_fillet, 0.1)),
+          "mouth_fillet")
 
     part.addObject(sk)
     return part
@@ -407,6 +429,7 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
             f'make_dropout_sketch("{d.name}",\n'
             f"    plate_radius={v['plate_radius']:.2f}, slot_width={d.slotWidth:.2f},\n"
             f"    slot_length={d.slotLength:.2f}, slot_angle={d.slotAngle:.2f},\n"
+            f"    slot_fillet={d.slotFillet:.2f},\n"
             f"    chainstay_xy=({cs_xy[0]:.2f}, {cs_xy[1]:.2f}),\n"
             f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}))\n"
         )
