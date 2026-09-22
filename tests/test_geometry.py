@@ -456,6 +456,18 @@ class TestFreeCADScriptGenerator:
         assert "slot_fillet=" in script
         assert ".fillet(" not in script       # not scripted — user applies it
 
+    def test_sketch_dropout_emits_stay_tabs(self, geom):
+        # One tab outline per socket, shape following the dropout type.
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
+                                     dropouts=geom.dropouts)
+        script = gen.generate()
+        assert "tab_style=" in script
+        assert "tabs=[" in script          # a tab per socket, positioned + angled
+        # two sockets -> two tab entries in the emitted list
+        drive_call = script.split('make_dropout_sketch("Dropout_Drive"')[1]
+        tabs_arg = drive_call.split("tabs=[")[1].split("])")[0]
+        assert tabs_arg.count("(") >= 2    # >= 2 tab tuples
+
     def test_solid_mode_has_no_axis(self, geom):
         gen = FreeCADScriptGenerator(geom.tubes, sketch=False)
         script = gen.generate()

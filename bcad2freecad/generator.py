@@ -1,5 +1,7 @@
 """FreeCAD script generator — turn TubeSpecs into a standalone macro."""
 
+import math
+
 from .geoframe import TubeSpec
 from .geodropouts import ParameterizedSocket
 
@@ -250,7 +252,8 @@ def make_axis(name, start, end):
 
 
 def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
-                        slot_fillet, chainstay_xy, seatstay_xy):
+                        slot_fillet, tab_style, chainstay_xy, seatstay_xy,
+                        tabs=()):
     """Build one dropout's profile sketch as a self-contained Part.
 
     Returns an App::Part named `name` holding a Sketcher object (`<name>
@@ -268,6 +271,11 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
     open at the mouth — traced as ONE continuous closed wire that breaches the
     ear edge and wraps the rounded axle seat. Authored in the axle-local X
     (fore-aft) / Y (up) plane.
+
+    Stay tabs (`tabs`): one separate closed outline per socket, extending from
+    the socket along its stay axis and overlapping the ear (a pad fuses them
+    into one solid). Shape follows `tab_style` — "plate" draws a flat
+    rectangular tang, "socket" a rounded stub.
 
     The two mouth fillets are NOT scripted (Sketcher's fillet tool renumbers
     geometry mid-operation, which a blind macro can't track). Instead the sketch
@@ -340,6 +348,34 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
     named(Sketcher.Constraint("Radius", c_lip, r), "lip_fillet")
     named(Sketcher.Constraint("Radius", c_mouth, max(slot_fillet, 0.1)),
           "mouth_fillet")
+
+    # Stay tabs: one separate closed outline per socket, extending from the
+    # socket along its stay axis. Each overlaps the ear so a pad fuses them
+    # into one connected solid. Shape follows tab_style: "plate" -> a flat
+    # rectangular tang; "socket" -> a rounded stub (two sides + a semicircle
+    # cap). Half width = tube_dia/2 + t (the insert fit).
+    for (tx, ty), tab_angle, half_w, tab_len in tabs:
+        ta = math.radians(tab_angle)
+        u = V(math.cos(ta), math.sin(ta), 0)     # along the stay
+        w = V(-math.sin(ta), math.cos(ta), 0)    # across (half-width)
+        base = V(tx, ty, 0)
+        end = base + u * tab_len
+        if tab_style == "socket":
+            sk.addGeometry(Part.LineSegment(base + w * half_w,
+                                            end + w * half_w), False)
+            sk.addGeometry(Part.LineSegment(base - w * half_w,
+                                            end - w * half_w), False)
+            w_ang = math.atan2(w.y, w.x)
+            sk.addGeometry(Part.ArcOfCircle(
+                Part.Circle(end, V(0, 0, 1), half_w),
+                w_ang - math.pi, w_ang), False)
+        else:  # plate: flat rectangular tang
+            p0 = base + w * half_w
+            p1 = end + w * half_w
+            p2 = end - w * half_w
+            p3 = base - w * half_w
+            for a, b in ((p0, p1), (p1, p2), (p2, p3), (p3, p0)):
+                sk.addGeometry(Part.LineSegment(a, b), False)
 
     part.addObject(sk)
     return part
@@ -417,21 +453,35 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
 
     def _make_dropout_sketch(self, d: ParameterizedSocket) -> str:
         # Same derivation as the solid; the sketch draws the construction
-        # centerlines (slot + stay axes) plus the plate outline (ear + U-slot)
-        # in the axle-local XY frame, so socket positions use their in-plane
-        # x,y (z is out-of-plane for a planar sketch).
+        # centerlines (slot + stay axes), the plate outline (ear + U-slot), and
+        # a stay-tab outline per socket, in the axle-local XY frame — socket
+        # positions use their in-plane x,y (z is out-of-plane for a sketch).
         v = self._compute_dropout(d)
         cs = v["chainstay"]
         ss = v["seatstay"]
         cs_xy = cs["local_xy"] if cs is not None else (0.0, 0.0)
         ss_xy = ss["local_xy"] if ss is not None else (0.0, 0.0)
+
+        # One tab per socket: (socket_xy, in-plane axis angle deg, half width,
+        # length). Half width = tube_dia/2 + t (the insert fit), matching the
+        # solid's tab radius. Style (plate tang / socket stub) follows d.type.
+        tabs = []
+        for sock, xy in ((cs, cs_xy), (ss, ss_xy)):
+            if sock is None:
+                continue
+            dx, dy, _ = sock["direction"]
+            angle = math.degrees(math.atan2(dy, dx))
+            half_w = max(sock["tube_dia"] / 2 + d.t, 0.5)
+            tabs.append((xy, angle, half_w, d.tabLength))
+
         return (
             f'make_dropout_sketch("{d.name}",\n'
             f"    plate_radius={v['plate_radius']:.2f}, slot_width={d.slotWidth:.2f},\n"
             f"    slot_length={d.slotLength:.2f}, slot_angle={d.slotAngle:.2f},\n"
-            f"    slot_fillet={d.slotFillet:.2f},\n"
+            f"    slot_fillet={d.slotFillet:.2f}, tab_style={d.type!r},\n"
             f"    chainstay_xy=({cs_xy[0]:.2f}, {cs_xy[1]:.2f}),\n"
-            f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}))\n"
+            f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}),\n"
+            f"    tabs={tabs!r})\n"
         )
 
     def _footer(self) -> str:
