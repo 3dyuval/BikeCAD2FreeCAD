@@ -402,12 +402,26 @@ class TestFreeCADScriptGenerator:
         for tube in geom.tubes:
             assert f'make_axis("{tube.name}"' in script
 
-    def test_sketch_skips_dropouts(self, geom):
+    def test_sketch_emits_dropout_sketch_not_solid(self, geom):
         gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
                                      dropouts=geom.dropouts)
         script = gen.generate()
-        # Dropout sketches are deferred: no dropout solid emitted in sketch mode
+        compile(script, "<test>", "exec")
+        # Dropouts become constrained Sketcher skeletons, not fused solids.
+        assert "import Sketcher" in script
+        assert "def make_dropout_sketch" in script
+        assert 'make_dropout_sketch("Dropout_Drive"' in script
+        assert "Sketcher::SketchObject" in script
+        # No solid-dropout machinery in sketch mode
         assert "make_dropout(" not in script
+        assert "makeFillet" not in script
+
+    def test_sketch_dropout_has_named_constraints(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
+                                     dropouts=geom.dropouts)
+        script = gen.generate()
+        for cname in ("slot_width_half", "ear_radius", "D_slot_length"):
+            assert cname in script
 
     def test_solid_mode_has_no_axis(self, geom):
         gen = FreeCADScriptGenerator(geom.tubes, sketch=False)

@@ -127,14 +127,10 @@ def main():
         sys.exit(1)
 
     # Sketch mode emits tube-axis lines, so tube wall thickness (hollow) has no
-    # meaning; and dropout sketches are a separate deferred feature.
-    if args.sketch:
-        if args.hollow:
-            print("  Warning: --hollow is ignored in --sketch mode "
-                  "(axes have no wall).", file=sys.stderr)
-        if dropouts:
-            print("  Warning: dropout sketches are not implemented; "
-                  "emitting the tube-axis skeleton only.", file=sys.stderr)
+    # meaning; dropouts become constrained Sketcher skeletons.
+    if args.sketch and args.hollow:
+        print("  Warning: --hollow is ignored in --sketch mode "
+              "(axes have no wall).", file=sys.stderr)
 
     # Generate FreeCAD script
     gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, sketch=args.sketch,
@@ -149,7 +145,9 @@ def main():
 
     out_path.write_text(script)
     if args.sketch:
-        print(f"Wrote {len(tubes)} tube axes to {out_path}")
+        n = len(tubes) + len(dropouts)
+        print(f"Wrote {len(tubes)} tube axes and {len(dropouts)} dropout "
+              f"sketch(es) to {out_path}")
     else:
         n = len(tubes) + len(dropouts)
         print(f"Wrote {n} parts to {out_path}")
