@@ -381,6 +381,40 @@ class TestFreeCADScriptGenerator:
         assert "slot_fillet=" in script
         assert "makeFillet" in script
 
+    def test_sketch_generates_valid_python(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True)
+        script = gen.generate()
+        compile(script, "<test>", "exec")
+
+    def test_sketch_emits_axis_lines_not_solids(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True)
+        script = gen.generate()
+        assert "import Draft" in script
+        assert "def make_axis" in script
+        assert 'make_axis("Down_Tube"' in script
+        # No solid-tube machinery in sketch mode
+        assert "Part.makeCylinder" not in script
+        assert "make_tube(" not in script
+
+    def test_sketch_names_every_tube_axis(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True)
+        script = gen.generate()
+        for tube in geom.tubes:
+            assert f'make_axis("{tube.name}"' in script
+
+    def test_sketch_skips_dropouts(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
+                                     dropouts=geom.dropouts)
+        script = gen.generate()
+        # Dropout sketches are deferred: no dropout solid emitted in sketch mode
+        assert "make_dropout(" not in script
+
+    def test_solid_mode_has_no_axis(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=False)
+        script = gen.generate()
+        assert "make_axis" not in script
+        assert "make_tube(" in script
+
 
 class TestWithRealFile:
     """Integration tests using the actual Gravel.bcad file."""

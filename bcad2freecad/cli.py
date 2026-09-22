@@ -28,6 +28,10 @@ def main():
         help="Generate hollow tubes (slower render but more realistic)",
     )
     ap.add_argument(
+        "--sketch", action="store_true",
+        help="Emit a tube-axis wireframe (Draft lines) instead of solid tubes",
+    )
+    ap.add_argument(
         "--axle-dia", type=float, default=10.0, metavar="MM",
         help="Rear axle diameter, sets the dropout slot width (default: 10.0)",
     )
@@ -122,8 +126,19 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
+    # Sketch mode emits tube-axis lines, so tube wall thickness (hollow) has no
+    # meaning; and dropout sketches are a separate deferred feature.
+    if args.sketch:
+        if args.hollow:
+            print("  Warning: --hollow is ignored in --sketch mode "
+                  "(axes have no wall).", file=sys.stderr)
+        if dropouts:
+            print("  Warning: dropout sketches are not implemented; "
+                  "emitting the tube-axis skeleton only.", file=sys.stderr)
+
     # Generate FreeCAD script
-    gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, dropouts=dropouts)
+    gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, sketch=args.sketch,
+                                 dropouts=dropouts)
     script = gen.generate()
 
     # Determine output path
@@ -133,8 +148,11 @@ def main():
         out_path = bcad_path.with_name(bcad_path.stem + "_freecad.py")
 
     out_path.write_text(script)
-    n = len(tubes) + len(dropouts)
-    print(f"Wrote {n} parts to {out_path}")
+    if args.sketch:
+        print(f"Wrote {len(tubes)} tube axes to {out_path}")
+    else:
+        n = len(tubes) + len(dropouts)
+        print(f"Wrote {n} parts to {out_path}")
     print(f"Open in FreeCAD: Macro > Execute Macro > {out_path.name}")
 
 
