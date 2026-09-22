@@ -249,7 +249,7 @@ def make_axis(name, start, end):
     return obj
 
 
-def make_dropout_sketch(name, slot_length, slot_angle,
+def make_dropout_sketch(name, base, slot_length, slot_angle,
                         chainstay_xy, seatstay_xy):
     """Draw one dropout's centerline skeleton as a constrained Sketcher object.
 
@@ -258,8 +258,14 @@ def make_dropout_sketch(name, slot_length, slot_angle,
     stay axes (axle -> each socket). The slot carries a length dimension
     (D_slot_length); each stay axis carries its BikeCAD panel components as
     named X/Y dimensions (Cx/Cy for the chainstay, Sx/Sy for the seatstay), so
-    every socket coordinate is independently editable. Built in the axle-local
-    XY plane; world placement is applied separately.
+    every socket coordinate is independently editable.
+
+    Geometry is authored in the axle-local X (fore-aft) / Y (up) plane, then
+    the sketch is PLACED at `base` (the axle world position). Both sides use
+    the same in-plane shape and an identity rotation — the drive/non-drive
+    dropouts differ only by their lateral Z (base), matching how the tube
+    skeleton mirrors the stays (Cx/Cy are identical on both sides; only Z
+    flips). The sketch plane faces along world +Z at that Z offset.
     """
     V = FreeCAD.Vector
     sk = doc.addObject("Sketcher::SketchObject", name)
@@ -284,6 +290,9 @@ def make_dropout_sketch(name, slot_length, slot_angle,
     named(Sketcher.Constraint("DistanceY", i_cs, 1, i_cs, 2, cs.y), "Cy")
     named(Sketcher.Constraint("DistanceX", i_ss, 1, i_ss, 2, ss.x), "Sx")
     named(Sketcher.Constraint("DistanceY", i_ss, 1, i_ss, 2, ss.y), "Sy")
+
+    # Place the whole sketch at the axle world position (identity rotation).
+    sk.Placement = FreeCAD.Placement(V(*base), FreeCAD.Rotation())
     sk.Label = name
     return sk
 
@@ -363,12 +372,14 @@ def make_dropout_sketch(name, slot_length, slot_angle,
         # (slot + stay axes) in the axle-local XY frame, so socket positions
         # use their in-plane x,y (z is out-of-plane for a planar sketch).
         v = self._compute_dropout(d)
+        cx, cy, cz = v["center"]
         cs = v["chainstay"]
         ss = v["seatstay"]
         cs_xy = cs["local_xy"] if cs is not None else (0.0, 0.0)
         ss_xy = ss["local_xy"] if ss is not None else (0.0, 0.0)
         return (
             f'make_dropout_sketch("{d.name}",\n'
+            f"    base=({cx:.2f}, {cy:.2f}, {cz:.2f}),\n"
             f"    slot_length={d.slotLength:.2f}, slot_angle={d.slotAngle:.2f},\n"
             f"    chainstay_xy=({cs_xy[0]:.2f}, {cs_xy[1]:.2f}),\n"
             f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}))\n"
