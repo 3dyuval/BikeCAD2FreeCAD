@@ -420,7 +420,8 @@ class TestFreeCADScriptGenerator:
         gen = FreeCADScriptGenerator(geom.tubes, sketch=True,
                                      dropouts=geom.dropouts)
         script = gen.generate()
-        for cname in ("D_slot_length", "chainstay_dist", "seatstay_dist"):
+        # Slot length + each stay socket's panel components (Cx/Cy, Sx/Sy).
+        for cname in ("D_slot_length", '"Cx"', '"Cy"', '"Sx"', '"Sy"'):
             assert cname in script
 
     def test_sketch_dropout_is_centerlines_only(self, geom):

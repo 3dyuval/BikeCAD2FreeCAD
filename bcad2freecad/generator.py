@@ -255,9 +255,11 @@ def make_dropout_sketch(name, slot_length, slot_angle,
 
     All construction geometry: the axle center point, the slot centerline
     (axle -> mouth along slot_angle, length D), and the chainstay / seatstay
-    stay axes (axle -> each socket). Named distance constraints (D_slot_length,
-    chainstay_dist, seatstay_dist) make the skeleton parametric. Built in the
-    axle-local XY plane; world placement is applied separately.
+    stay axes (axle -> each socket). The slot carries a length dimension
+    (D_slot_length); each stay axis carries its BikeCAD panel components as
+    named X/Y dimensions (Cx/Cy for the chainstay, Sx/Sy for the seatstay), so
+    every socket coordinate is independently editable. Built in the axle-local
+    XY plane; world placement is applied separately.
     """
     V = FreeCAD.Vector
     sk = doc.addObject("Sketcher::SketchObject", name)
@@ -276,10 +278,12 @@ def make_dropout_sketch(name, slot_length, slot_angle,
         sk.renameConstraint(c, nm)
         return c
     named(Sketcher.Constraint("Distance", i_slot, slot_length), "D_slot_length")
-    if cs.Length > 1e-6:
-        named(Sketcher.Constraint("Distance", i_cs, cs.Length), "chainstay_dist")
-    if ss.Length > 1e-6:
-        named(Sketcher.Constraint("Distance", i_ss, ss.Length), "seatstay_dist")
+    # Stay socket coordinates as their panel components (axle -> socket),
+    # using each axis line's start (pos 1) -> end (pos 2) X/Y deltas.
+    named(Sketcher.Constraint("DistanceX", i_cs, 1, i_cs, 2, cs.x), "Cx")
+    named(Sketcher.Constraint("DistanceY", i_cs, 1, i_cs, 2, cs.y), "Cy")
+    named(Sketcher.Constraint("DistanceX", i_ss, 1, i_ss, 2, ss.x), "Sx")
+    named(Sketcher.Constraint("DistanceY", i_ss, 1, i_ss, 2, ss.y), "Sy")
     sk.Label = name
     return sk
 
