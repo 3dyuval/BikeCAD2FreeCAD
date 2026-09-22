@@ -42,6 +42,8 @@ Open this file in FreeCAD and run it (Macro > Execute) to create
 a 3D model of the bike frame.
 """
 
+import math
+
 import FreeCAD
 import Part
 
@@ -71,9 +73,10 @@ def make_tube(name, start, end, r1, r2, wall=0, color=(0.6, 0.6, 0.65)):
 
 
 def make_dropout(name, center, plate_radius, thickness, slot_width,
-                 slot_angle=180.0, slot_length=50.0, tabs=(),
-                 color=(0.4, 0.4, 0.43)):
-    """Create a parameterizedSocket dropout: an ear plate + stay-socket tabs.
+                 outer_z=0.0, extrude_sign=-1.0,
+                 slot_angle=180.0, slot_length=50.0, slot_fillet=2.0,
+                 tab_style="socket", tabs=(), color=(0.4, 0.4, 0.43)):
+    """Create a parameterized dropout: an ear plate + stay-attachment tabs.
 
     The plate is a "dropout ear": a body of radius `plate_radius`
     (= axle_radius + A, the concentric material past the hole circumference)
@@ -81,10 +84,21 @@ def make_dropout(name, center, plate_radius, thickness, slot_width,
     contains the slot — a capsule/stadium in the X-Y plane, `thickness` (T)
     thick along Z. A U-slot of `slot_width` and length `slot_length` is cut
     opening in direction `slot_angle` (deg from +X CCW: 0=fwd, 90=up,
-    180/-180=rear, -90=down). Each `tabs` entry is (start_xyz, dir_xyz, length,
-    size): a socket stub from `start` along `dir`; negative `size` = insert.
+    180/-180=rear, -90=down). The slot MOUTH — the two corners where it breaks
+    out of the plate edge — is rounded by `slot_fillet` (a small radius,
+    smaller than the plate's own corner rounding).
+
+    `tab_style` selects the stay attachment shape:
+      "socket" — a round stub the stay tube slides over (cylinder)
+      "plate"  — a flat rectangular tang in the frame plane (box, T thick)
+    Each `tabs` entry is (start_xyz, dir_xyz, length, tube_dia, tube_fit): the
+    tab runs from `start` along `dir` for `length`, sized to the stay tube
+    diameter; a negative `tube_fit` (t) shrinks it for the insert fit.
     """
     cx, cy, cz = center
+    # The plate extrudes from its outer face (outer_z) inward by `thickness`.
+    # plate_zlo is the lower-Z face of that material.
+    plate_zlo = min(outer_z, outer_z + extrude_sign * thickness)
 
     def capsule(radius, length, zt, zbase):
         """A stadium along +X (built at origin): circle at 0, circle at
@@ -105,32 +119,73 @@ def make_dropout(name, center, plate_radius, thickness, slot_width,
         return shape
 
     # Plate ear: capsule of `plate_radius`, stretched along the slot axis by
-    # slot_length so the D-long slot fits. `thickness` (T) thick, centered on Z.
-    plate = place(capsule(plate_radius, slot_length, thickness,
-                          cz - thickness / 2))
+    # slot_length so the D-long slot fits, `thickness` (T) thick.
+    plate = place(capsule(plate_radius, slot_length, thickness, plate_zlo))
 
-    # U-slot: a rounded seat at the axle end + an open channel to the outer
-    # edge. Only the AXLE end is rounded (the axle seat); the outer end is left
-    # open (flat) so the axle slides in — a U, not a closed capsule.
+    # U-slot: a rounded seat at the axle end and an open channel out to the
+    # edge, so the axle slides in — a U, not a closed capsule.
     r = slot_width / 2
     zt = thickness + 2.0
-    zb = cz - thickness / 2 - 1.0
+    zb = plate_zlo - 1.0
     seat = Part.makeCylinder(r, zt, FreeCAD.Vector(0, 0, zb),
-                             FreeCAD.Vector(0, 0, 1))              # round seat
-    channel = Part.makeBox(slot_length + plate_radius + 1.0, slot_width, zt,
-                           FreeCAD.Vector(0, -r, zb))             # open to edge
+                             FreeCAD.Vector(0, 0, 1))
+    channel_len = slot_length + plate_radius + 1.0
+    channel = Part.makeBox(channel_len, slot_width, zt,
+                           FreeCAD.Vector(0, -r, zb))
     slot = place(seat.fuse(channel))
     shape = plate.cut(slot)
 
-    # Stay-socket tabs: a cylinder from each socket point along its stay axis.
-    for (sx, sy, sz), (dx, dy, dz), length, size in tabs:
-        radius = max(abs(size), 0.5) / 2 + 2.0  # stub the tube fits over
+    # Round the two corners at the slot MOUTH (where the channel breaks out of
+    # the plate's outer edge). Those corners are the vertical edges nearest the
+    # mouth point — the far end of the channel, out along the slot axis. We
+    # locate them by proximity to that point (in the placed frame) and fillet
+    # them by slot_fillet, a smaller radius than the plate's corner rounding.
+    if slot_fillet > 0:
+        ang = math.radians(slot_angle)
+        mouth = FreeCAD.Vector(
+            cx + channel_len * math.cos(ang),
+            cy + channel_len * math.sin(ang),
+            plate_zlo,
+        )
+        mouth_edges = []
+        for e in shape.Edges:
+            v0 = e.Vertexes[0].Point
+            v1 = e.Vertexes[-1].Point
+            d = v1.sub(v0)
+            # vertical (Z-parallel) edge spanning the plate thickness
+            if abs(d.x) < 1e-6 and abs(d.y) < 1e-6 and abs(d.z) > 1e-6:
+                mid = FreeCAD.Vector(v0.x, v0.y, plate_zlo)
+                if mid.sub(mouth).Length < slot_width:
+                    mouth_edges.append(e)
+        if mouth_edges:
+            try:
+                shape = shape.makeFillet(slot_fillet, mouth_edges)
+            except Exception:
+                pass  # degenerate fillet (radius too big for the edge) — skip
+
+    for (sx, sy, sz), (dx, dy, dz), length, tube_dia, tube_fit in tabs:
+        radius = max(tube_dia / 2 + tube_fit, 0.5)
         base = FreeCAD.Vector(sx, sy, sz)
         direction = FreeCAD.Vector(dx, dy, dz)
         if direction.Length < 1e-6:
             continue
-        stub = Part.makeCylinder(radius, length, base, direction)
-        shape = shape.fuse(stub)
+        direction = direction.normalize()
+        if tab_style == "plate":
+            # Flat tang: an extension of the plate itself, so it sits in the
+            # SAME Z band as the plate (plate_zlo .. plate_zlo+T), not at the
+            # socket's own z. Box (width = tube dia, T thick) laid along the
+            # stay axis, then rotated in-plane to face the stay.
+            angle = math.degrees(math.atan2(dy, dx))
+            tab = Part.makeBox(
+                length, 2 * radius, thickness,
+                FreeCAD.Vector(0, -radius, plate_zlo),
+            )
+            tab.rotate(FreeCAD.Vector(0, 0, 0),
+                       FreeCAD.Vector(0, 0, 1), angle)
+            tab.translate(FreeCAD.Vector(sx, sy, 0))
+        else:
+            tab = Part.makeCylinder(radius, length, base, direction)
+        shape = shape.fuse(tab)
 
     obj = doc.addObject("Part::Feature", name)
     obj.Shape = shape
@@ -153,7 +208,7 @@ def make_dropout(name, center, plate_radius, thickness, slot_width,
         )
 
     def _make_dropout(self, d: ParameterizedSocket) -> str:
-        # Plate center = axle, shifted forward by Z (keeps axle fixed).
+        # Plate origin = axle, shifted forward by Z (keeps axle fixed).
         cx = d.axle.x + d.Z
         cy = d.axle.y
         cz = d.axle.z
@@ -161,20 +216,32 @@ def make_dropout(name, center, plate_radius, thickness, slot_width,
         # radius = axle_radius + A.
         plate_radius = d.slotWidth / 2 + d.A
 
+        # The plate is built in the Z=0 plane; its material extrudes from the
+        # outer face inward toward the frame centerline (Z=0). extrude_sign
+        # points inward; the outer face sits at the outermost socket z so, with
+        # Sz/Cz > T, the plate sits outboard of the axle plane.
+        extrude_sign = -1.0 if cz > 0 else 1.0
+        socket_zs = [s.z for s in (d.chainstaySocket, d.seatstaySocket)
+                     if s is not None]
+        outer_z = cz + (max(socket_zs, key=abs) if socket_zs else 0.0)
+
         tabs = []
         for sock in (d.chainstaySocket, d.seatstaySocket):
             if sock is None:
                 continue
             start = (cx + sock.x, cy + sock.y, cz + sock.z)
             direction = (sock.axis.x, sock.axis.y, sock.axis.z)
-            tabs.append((start, direction, d.tabLength, d.t))
+            tabs.append((start, direction, d.tabLength, sock.tubeDia, d.t))
 
         return (
             f'make_dropout("{d.name}",\n'
             f"    center=({cx:.2f}, {cy:.2f}, {cz:.2f}),\n"
             f"    plate_radius={plate_radius:.2f}, thickness={d.T:.2f},\n"
+            f"    outer_z={outer_z:.2f}, extrude_sign={extrude_sign:.1f},\n"
             f"    slot_width={d.slotWidth:.2f}, slot_angle={d.slotAngle:.2f},\n"
-            f"    slot_length={d.slotLength:.2f}, tabs={tabs!r},\n"
+            f"    slot_length={d.slotLength:.2f}, slot_fillet={d.slotFillet:.2f},\n"
+            f"    tab_style={d.type!r},\n"
+            f"    tabs={tabs!r},\n"
             f"    color=({d.color[0]:.2f}, {d.color[1]:.2f}, {d.color[2]:.2f}))\n"
         )
 

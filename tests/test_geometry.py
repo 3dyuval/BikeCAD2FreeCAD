@@ -303,6 +303,12 @@ class TestDropouts:
         # Fillet is a fixed cosmetic constant, not a parameter or CLI option.
         assert all(d.fillet == DROPOUT_FILLET for d in geom.dropouts)
 
+    def test_slot_fillet_is_smaller_than_plate_fillet(self, geom):
+        from bcad2freecad.geometry import DROPOUT_SLOT_FILLET, DROPOUT_FILLET
+        # The slot mouth is rounded by a smaller radius than the plate corners.
+        assert DROPOUT_SLOT_FILLET < DROPOUT_FILLET
+        assert all(d.slotFillet == DROPOUT_SLOT_FILLET for d in geom.dropouts)
+
     def test_slot_angle_defaults_rearward(self, geom):
         # ξ (Dropout joint 9) defaults to 180° = rearward when absent.
         assert all(abs(d.slotAngle - 180.0) < 1e-6 for d in geom.dropouts)
@@ -358,6 +364,13 @@ class TestFreeCADScriptGenerator:
         gen = FreeCADScriptGenerator(geom.tubes, hollow=False)
         script = gen.generate()
         assert "outer.cut(inner)" not in script
+
+    def test_dropout_macro_emits_slot_fillet(self, geom):
+        gen = FreeCADScriptGenerator(geom.tubes, dropouts=geom.dropouts)
+        script = gen.generate()
+        compile(script, "<test>", "exec")
+        assert "slot_fillet=" in script
+        assert "makeFillet" in script
 
 
 class TestWithRealFile:
