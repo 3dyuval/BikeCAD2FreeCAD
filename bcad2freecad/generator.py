@@ -3,7 +3,7 @@
 import math
 
 from .geoframe import TubeSpec
-from .geodropouts import ParameterizedSocket
+from .geodropouts import ParameterizedSocket, DiscMount
 
 
 class FreeCADScriptGenerator:
@@ -11,11 +11,13 @@ class FreeCADScriptGenerator:
 
     def __init__(self, tubes: list[TubeSpec], hollow: bool = False,
                  sketch: bool = False,
-                 dropouts: list[ParameterizedSocket] | None = None):
+                 dropouts: list[ParameterizedSocket] | None = None,
+                 disc_mount: DiscMount | None = None):
         self.tubes = tubes
         self.hollow = hollow
         self.sketch = sketch
         self.dropouts = dropouts or []
+        self.disc_mount = disc_mount
 
     def generate(self) -> str:
         parts = [self._header()]
@@ -27,6 +29,9 @@ class FreeCADScriptGenerator:
                 parts.append(self._make_dropout_sketch(dropout))
             else:
                 parts.append(self._make_dropout(dropout))
+        # The disc mount is sketch-only (its own Part, positioned at assembly).
+        if self.sketch and self.disc_mount is not None:
+            parts.append(self._make_disc_mount(self.disc_mount))
         parts.append(self._footer())
         return "\n".join(parts)
 
@@ -380,6 +385,46 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
     part.addObject(sk)
     return part
 
+
+def make_disc_mount(name, spacing, bolt_dia, slotted, travel):
+    """Build the rear disc I.S. mount as a self-contained Part.
+
+    Two M6 bolt features on a bolt line (local +X, first bolt at origin),
+    `spacing` apart (the I.S. 51mm invariant). When `slotted`, each is an
+    adjustment slot: a capsule of `travel` length running along the bolt line
+    (so the caliper slides with the axle). Otherwise each is a plain round hole.
+    Authored at origin, identity placement — position it in the assembly.
+    """
+    V = FreeCAD.Vector
+    part = doc.addObject("App::Part", name)
+    part.Label = name
+    sk = doc.addObject("Sketcher::SketchObject", name + "_profile")
+    r = bolt_dia / 2.0
+
+    def bolt(cx):
+        if slotted and travel > 0:
+            x0, x1 = cx - travel / 2.0, cx + travel / 2.0
+            sk.addGeometry(Part.LineSegment(V(x0, r, 0), V(x1, r, 0)), False)
+            sk.addGeometry(Part.LineSegment(V(x0, -r, 0), V(x1, -r, 0)), False)
+            sk.addGeometry(Part.ArcOfCircle(
+                Part.Circle(V(x1, 0, 0), V(0, 0, 1), r),
+                -math.pi / 2, math.pi / 2), False)
+            sk.addGeometry(Part.ArcOfCircle(
+                Part.Circle(V(x0, 0, 0), V(0, 0, 1), r),
+                math.pi / 2, 3 * math.pi / 2), False)
+        else:
+            sk.addGeometry(Part.Circle(V(cx, 0, 0), V(0, 0, 1), r), False)
+
+    i_line = sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(spacing, 0, 0)), True)
+    bolt(0.0)
+    bolt(spacing)
+
+    c = sk.addConstraint(Sketcher.Constraint("Distance", i_line, spacing))
+    sk.renameConstraint(c, "bolt_spacing_F")
+
+    part.addObject(sk)
+    return part
+
 '''
 
     def _compute_dropout(self, d: ParameterizedSocket) -> dict:
@@ -482,6 +527,13 @@ def make_dropout_sketch(name, plate_radius, slot_width, slot_length, slot_angle,
             f"    chainstay_xy=({cs_xy[0]:.2f}, {cs_xy[1]:.2f}),\n"
             f"    seatstay_xy=({ss_xy[0]:.2f}, {ss_xy[1]:.2f}),\n"
             f"    tabs={tabs!r})\n"
+        )
+
+    def _make_disc_mount(self, m: DiscMount) -> str:
+        return (
+            f'make_disc_mount("{m.name}",\n'
+            f"    spacing={m.spacing:.2f}, bolt_dia={m.boltDia:.2f},\n"
+            f"    slotted={m.slotted!r}, travel={m.travel:.2f})\n"
         )
 
     def _footer(self) -> str:

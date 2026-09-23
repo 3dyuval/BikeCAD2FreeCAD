@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .parser import BcadParser
 from .geoframe import FrameGeometry, filter_tubes, TUBE_FEATURES
-from .geodropouts import SUPPORTED_DROPOUT_TYPES
+from .geodropouts import SUPPORTED_DROPOUT_TYPES, build_disc_mount
 from .generator import FreeCADScriptGenerator
 
 
@@ -54,8 +54,10 @@ def main():
                       help="Fork blades and steerer")
     feat.add_argument("--dropout", action="store_true",
                       help="Rear dropout only (generic simple-slot plate)")
+    feat.add_argument("--disc", action="store_true",
+                      help="Rear disc-brake I.S. mount (sketch mode only)")
     feat.add_argument("--all", action="store_true",
-                      help="Everything, including the dropout")
+                      help="Everything, including the dropout and disc mount")
     args = ap.parse_args()
 
     # Parse
@@ -85,11 +87,11 @@ def main():
     #                 the bought-in dropout is excluded by default)
     #   --all       = the only way to get everything, dropout included
     flagged = {
-        f for f in ("frame", "stays", "fork", "dropout")
+        f for f in ("frame", "stays", "fork", "dropout", "disc")
         if getattr(args, f)
     }
     if args.all:
-        requested = {"frame", "stays", "fork", "dropout"}
+        requested = {"frame", "stays", "fork", "dropout", "disc"}
     elif flagged:
         requested = flagged
     else:
@@ -121,7 +123,22 @@ def main():
                 file=sys.stderr,
             )
 
-    if not tubes and not dropouts:
+    # Disc mount: a sketch-only feature. Built only if the frame actually has a
+    # rear disc mount (guarded in build_disc_mount). It has no solid form, so an
+    # explicit --disc without --sketch is an error.
+    disc_mount = None
+    if "disc" in requested:
+        if not args.sketch:
+            print("Error: --disc is a sketch-only feature; add --sketch.",
+                  file=sys.stderr)
+            sys.exit(1)
+        disc_mount = build_disc_mount(geom)
+        if disc_mount is None and args.disc:  # explicitly requested, absent
+            print("  Warning: no rear disc mount in this frame "
+                  "(REARROTOR_INCLUDE is off); skipping --disc.",
+                  file=sys.stderr)
+
+    if not tubes and not dropouts and disc_mount is None:
         print("Error: no exportable geometry for the selected features.",
               file=sys.stderr)
         sys.exit(1)
@@ -134,7 +151,7 @@ def main():
 
     # Generate FreeCAD script
     gen = FreeCADScriptGenerator(tubes, hollow=args.hollow, sketch=args.sketch,
-                                 dropouts=dropouts)
+                                 dropouts=dropouts, disc_mount=disc_mount)
     script = gen.generate()
 
     # Determine output path
@@ -145,9 +162,9 @@ def main():
 
     out_path.write_text(script)
     if args.sketch:
-        n = len(tubes) + len(dropouts)
-        print(f"Wrote {len(tubes)} tube axes and {len(dropouts)} dropout "
-              f"sketch(es) to {out_path}")
+        disc_n = 1 if disc_mount is not None else 0
+        print(f"Wrote {len(tubes)} tube axes, {len(dropouts)} dropout "
+              f"sketch(es), and {disc_n} disc mount to {out_path}")
     else:
         n = len(tubes) + len(dropouts)
         print(f"Wrote {n} parts to {out_path}")

@@ -19,6 +19,8 @@ from .geoframe import (
 from .geodropouts import (
     StaySocket,
     ParameterizedSocket,
+    DiscMount,
+    build_disc_mount,
     SUPPORTED_DROPOUT_TYPES,
 )
 from .generator import FreeCADScriptGenerator
@@ -29,6 +31,8 @@ __all__ = [
     "TubeSpec",
     "StaySocket",
     "ParameterizedSocket",
+    "DiscMount",
+    "build_disc_mount",
     "FrameGeometry",
     "FreeCADScriptGenerator",
     "filter_tubes",

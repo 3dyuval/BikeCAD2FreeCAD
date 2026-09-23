@@ -495,6 +495,82 @@ class TestFreeCADScriptGenerator:
         assert "make_tube(" in script
 
 
+class TestDiscMount:
+    def test_absent_when_rotor_not_included(self, tmp_path):
+        from bcad2freecad import BcadParser, FrameGeometry, build_disc_mount
+        content = textwrap.dedent("""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+            <properties>
+            <entry key="REARROTOR_INCLUDE">false</entry>
+            </properties>
+        """)
+        f = tmp_path / "nodisc.bcad"
+        f.write_text(content)
+        g = FrameGeometry(BcadParser(str(f)))
+        g.compute()
+        assert build_disc_mount(g) is None
+
+    def test_slotted_when_slot_horizontal(self, tmp_path):
+        from bcad2freecad import BcadParser, FrameGeometry, build_disc_mount
+        content = textwrap.dedent("""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+            <properties>
+            <entry key="REARROTOR_INCLUDE">true</entry>
+            <entry key="REARROTORF">51.0</entry>
+            <entry key="Dropout joint 9">180.0</entry>
+            <entry key="Dropout ADJSL">40.0</entry>
+            </properties>
+        """)
+        f = tmp_path / "disc.bcad"
+        f.write_text(content)
+        g = FrameGeometry(BcadParser(str(f)))
+        g.compute()
+        m = build_disc_mount(g)
+        assert m is not None
+        assert abs(m.spacing - 51.0) < 1e-6   # the I.S. invariant
+        assert m.slotted and abs(m.travel - 40.0) < 1e-6
+
+    def test_plain_holes_when_slot_not_horizontal(self, tmp_path):
+        from bcad2freecad import BcadParser, FrameGeometry, build_disc_mount
+        content = textwrap.dedent("""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+            <properties>
+            <entry key="REARROTOR_INCLUDE">true</entry>
+            <entry key="REARROTORF">51.0</entry>
+            <entry key="Dropout joint 9">-90.0</entry>
+            <entry key="Dropout ADJSL">40.0</entry>
+            </properties>
+        """)
+        f = tmp_path / "disc90.bcad"
+        f.write_text(content)
+        g = FrameGeometry(BcadParser(str(f)))
+        g.compute()
+        m = build_disc_mount(g)
+        # slot not horizontal -> plain holes, no travel coupling
+        assert m is not None and not m.slotted and m.travel == 0.0
+
+    def test_generator_emits_disc_mount_in_sketch_mode(self, geom):
+        from bcad2freecad import DiscMount
+        m = DiscMount(slotted=True, travel=40.0)
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=True, disc_mount=m)
+        script = gen.generate()
+        compile(script, "<test>", "exec")
+        assert "def make_disc_mount" in script
+        assert 'make_disc_mount("DiscMount_IS"' in script
+        assert "bolt_spacing_F" in script
+
+    def test_disc_mount_absent_in_solid_mode(self, geom):
+        from bcad2freecad import DiscMount
+        m = DiscMount(slotted=True, travel=40.0)
+        gen = FreeCADScriptGenerator(geom.tubes, sketch=False, disc_mount=m)
+        script = gen.generate()
+        # disc mount is sketch-only; solid mode ignores it
+        assert "make_disc_mount(" not in script
+
+
 class TestWithRealFile:
     """Integration tests using the actual Gravel.bcad file."""
 

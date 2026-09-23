@@ -197,3 +197,61 @@ def build_dropouts(geom) -> tuple[list[ParameterizedSocket], str]:
             ),
         ))
     return dropouts, dropout_type
+
+
+# ── Disc brake mount (I.S. — International Standard) ─────────────────────────
+#
+# A distinct feature from the dropout: the rear disc caliper's I.S. mount, two
+# M6 bolt bosses whose ONE invariant is their 51mm spacing. It relates to the
+# frame only by the axle position (a placement concern), so we model it as its
+# own self-contained Part authored on its bolt line — you position it at merge.
+#
+# The bolts can be plain holes or elongated into adjustment slots that let the
+# caliper slide WITH the axle (sliding dropout / wheel adjustment). That slot
+# only tracks the axle when the dropout slot is horizontal (xi = 180): the
+# collinear caliper slots then translate the same way the axle slides. For any
+# other xi the coupling breaks, so we fall back to plain holes.
+
+IS_BOLT_SPACING = 51.0   # the defining I.S. invariant (mm), M6 bolt centres
+IS_BOLT_DIA = 6.0        # M6 caliper bolts
+
+
+@dataclass
+class DiscMount:
+    """A rear disc-brake I.S. mount as its own sketchable part.
+
+    Authored on its bolt line (local +X, first bolt at origin). `spacing` is
+    the I.S. 51mm bolt-centre distance; `boltDia` the M6 hole. When `slotted`
+    (dropout slot horizontal), each bolt is an adjustment slot of `travel`
+    length running along the bolt line; otherwise a plain round hole.
+    """
+    name: str = "DiscMount_IS"
+    spacing: float = IS_BOLT_SPACING
+    boltDia: float = IS_BOLT_DIA
+    slotted: bool = False
+    travel: float = 0.0
+    feature: str = "disc"
+
+
+def build_disc_mount(geom) -> "DiscMount | None":
+    """Build the rear disc I.S. mount from the file, or None if absent.
+
+    Returns None unless the frame actually has a rear disc mount
+    (REARROTOR_INCLUDE). Bolt spacing comes from the file (REARROTORF, the I.S.
+    51mm); the bolts become adjustment slots (length Dropout ADJSL) only when
+    the dropout slot is horizontal (xi == 180), else plain holes.
+    """
+    p = geom.p
+    if not p.get_bool("REARROTOR_INCLUDE", False):
+        return None
+
+    spacing = p.get_float("REARROTORF", IS_BOLT_SPACING)
+    xi = p.get_float("Dropout joint 9", 180.0)
+    slotted = abs(xi - 180.0) < 1e-6 or abs(xi + 180.0) < 1e-6
+    travel = p.get_float("Dropout ADJSL", 0.0) if slotted else 0.0
+    return DiscMount(
+        spacing=spacing,
+        boltDia=IS_BOLT_DIA,
+        slotted=slotted,
+        travel=travel,
+    )
