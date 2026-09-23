@@ -143,10 +143,25 @@ class FrameGeometry:
 
         # ── Key dimensions ──
         stack = p.get_float("Stack", 600.0)
-        bb_drop = p.get_float("BB textfield", 65.0)
         cs_length = p.get_float("CS textfield", 450.0)
         ht_length = p.get_float("Head tube length textfield", 150.0)
         st_length = p.get_float("Seat tube length", 500.0)
+
+        # ── BB drop ──
+        # "BB textfield" means different things per "BB measure style":
+        #   style 0 → the value IS the BB drop (axle line down to BB center)
+        #   style 1 → the value is BB HEIGHT off the ground; drop = rear wheel
+        #             radius - height (a low BB sits below the axle line)
+        # Reading it blindly as drop places the rear axle at the wrong height,
+        # which then throws off every stay direction (chainstay/seatstay angles)
+        # derived from the axle. Mirror the Reach measure-style handling below.
+        bb_measure_style = p.get_int("BB measure style", 0)
+        bb_value = p.get_float("BB textfield", 65.0)
+        if bb_measure_style == 1:
+            rear_wheel_dia = p.get_float("Wheel diameter rear", 670.0)
+            bb_drop = rear_wheel_dia / 2 - bb_value
+        else:
+            bb_drop = bb_value
 
         # ── Reach ──
         # With measure style 3 (Stack & Reach), FCD textfield stores Reach

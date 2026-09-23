@@ -143,6 +143,26 @@ class TestReferencePoints:
         """Rear axle should be above BB by BB drop amount."""
         assert abs(geom.rear_axle.y - 65.0) < 0.1
 
+    def test_bb_measure_style_1_is_height_not_drop(self, tmp_path):
+        # BB measure style 1: "BB textfield" is BB HEIGHT off the ground, not
+        # drop. Drop = rear wheel radius - height. Reading it as drop directly
+        # would place the rear axle hundreds of mm too high.
+        content = textwrap.dedent("""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+            <properties>
+            <entry key="BB measure style">1</entry>
+            <entry key="BB textfield">320.0</entry>
+            <entry key="Wheel diameter rear">670.0</entry>
+            </properties>
+        """)
+        f = tmp_path / "style1.bcad"
+        f.write_text(content)
+        g = FrameGeometry(BcadParser(str(f)))
+        g.compute()
+        # drop = 670/2 - 320 = 15
+        assert abs(g.rear_axle.y - 15.0) < 0.1
+
     def test_rear_axle_behind_bb(self, geom):
         """Rear axle should be behind (negative X) the BB."""
         assert geom.rear_axle.x < 0
